@@ -109,10 +109,13 @@ Profile parseHeader(const std::string& header, const std::string& sourceFile,
     return p;
 }
 
-void addRule(Profile& p, const std::string& text, int line) {
+void addRule(Profile& p, const std::string& text, int line,
+             std::size_t startOffset, std::size_t endOffset) {
     Rule r;
     r.raw = text;
     r.line = line;
+    r.startOffset = startOffset;
+    r.endOffset = endOffset;
 
     auto tokens = splitWhitespace(text);
     std::size_t i = 0;
@@ -266,6 +269,34 @@ std::string describePerms(const std::string& perms) {
     return out;
 }
 
+std::string normalizeFilePerms(const std::string& mask) {
+    std::string out;
+    auto add = [&](char c) {
+        if (out.find(c) == std::string::npos)
+            out.push_back(c);
+    };
+    bool sawWrite = false;
+    for (char c : mask) {
+        switch (c) {
+        case 'r': add('r'); break;
+        case 'w': add('w'); sawWrite = true; break;
+        case 'c': add('w'); sawWrite = true; break; // create -> write
+        case 'd': add('w'); sawWrite = true; break; // delete -> write
+        case 'a': add('a'); break;
+        case 'l': add('l'); break;
+        case 'k': add('k'); break;
+        case 'm': add('m'); break;
+        case 'x': add('x'); break;
+        default: break; // drop letters that are not rule permissions
+        }
+    }
+    // A write rule already covers append, so drop a redundant 'a'.
+    if (sawWrite)
+        if (auto p = out.find('a'); p != std::string::npos)
+            out.erase(p, 1);
+    return out;
+}
+
 bool Profile::complain() const {
     return std::find(flags.begin(), flags.end(), "complain") != flags.end();
 }
@@ -291,6 +322,7 @@ std::vector<Profile> parseText(const std::string& text,
     std::string buf;
     int line = 1;
     int bufStartLine = 1;
+    std::size_t bufStartOffset = 0; // byte offset of the current statement
     // Path globs ("/{usr/,}bin") and variables ("@{PROC}") use braces and
     // commas *inside* a token. Track that depth so those characters are not
     // mistaken for profile blocks or rule terminators.
@@ -345,7 +377,7 @@ std::vector<Profile> parseText(const std::string& text,
             } else {
                 const std::string t = trim(buf);
                 if (!t.empty() && !stack.empty())
-                    addRule(stack.back(), t, bufStartLine);
+                    addRule(stack.back(), t, bufStartLine, bufStartOffset, i);
                 buf.clear();
                 if (!stack.empty())
                     stack.back().bodyEndOffset = i;
@@ -360,14 +392,16 @@ std::vector<Profile> parseText(const std::string& text,
             }
             const std::string t = trim(buf);
             if (!t.empty() && !stack.empty())
-                addRule(stack.back(), t, bufStartLine);
+                addRule(stack.back(), t, bufStartLine, bufStartOffset, i);
             buf.clear();
             continue;
         }
         if (buf.empty() && (c == ' ' || c == '\t'))
             continue; // drop leading whitespace
-        if (buf.empty())
+        if (buf.empty()) {
             bufStartLine = line;
+            bufStartOffset = i;
+        }
         buf.push_back(c);
     }
 

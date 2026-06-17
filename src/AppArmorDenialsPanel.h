@@ -7,6 +7,7 @@
 #include <wx/listctrl.h>
 
 #include "AppArmorDenials.h"
+#include "AppArmorEditor.h"
 #include "AppArmorParser.h"
 #include "AuditParser.h"
 
@@ -34,6 +35,7 @@ private:
     void onItemSelected(wxListEvent&);
     void onAllow(wxCommandEvent&);
     void onDeny(wxCommandEvent&);
+    void onReverse(wxCommandEvent&);
     void onActionButton(wxCommandEvent&);
     void onListRightClick(wxListEvent&);
 
@@ -41,8 +43,11 @@ private:
     bool matches(const apparmor::DenialGroup& g) const;
     wxString detailFor(const apparmor::DenialGroup& g) const;
     bool selectionEditable() const;
+    bool selectionReversible() const;
     void popupActionMenu();
     void applyDecision(apparmor::Decision decision);
+    void applyReverse();
+    bool finishEdit(const apparmor::EditResult& r, const wxString& file);
 
     class DenialList;
     wxString OnGetItemText(long item, long column) const;

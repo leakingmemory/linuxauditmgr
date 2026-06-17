@@ -33,15 +33,14 @@ std::string toLower(std::string s) {
     return s;
 }
 
-// Default directory for the AppArmor tab: prefer a readable user copy, then
-// the system location. The user usually cannot read all of /etc/apparmor.d
-// without root, so a copy under $HOME is the convenient default when present.
+// Default directory for the AppArmor tab: the system location, so reads,
+// writes and reapplies act on the profiles the kernel actually loads. The
+// LINUXAUDITMGR_APPARMOR_DIR environment variable overrides it, which is handy
+// for testing against a readable copy (e.g. ~/apparmor.d) without root.
 wxString defaultAppArmorDir() {
-    const wxString candidates[] = {wxGetHomeDir() + "/apparmor.d",
-                                   "/etc/apparmor.d"};
-    for (const auto& c : candidates)
-        if (wxDirExists(c))
-            return c;
+    if (wxString override; wxGetEnv("LINUXAUDITMGR_APPARMOR_DIR", &override) &&
+                           !override.empty())
+        return override;
     return "/etc/apparmor.d";
 }
 } // namespace

@@ -35,12 +35,16 @@ it **gives** (allow rules) versus **takes** (explicit `deny` rules):
   network, signal, ptrace, D-Bus, mount, etc. — plus the inherited abstraction
   includes and the source file:line.
 - Substring filter over profile name, attachment path and rule text.
-- Defaults to a readable `~/apparmor.d` copy if present, otherwise
-  `/etc/apparmor.d`; use **Browse…** to point it anywhere.
+- Defaults to `/etc/apparmor.d` — the profiles the kernel actually loads — so
+  reads, edits and reapplies all act on the real policy. Use **Browse…** to
+  point it elsewhere, or set the `LINUXAUDITMGR_APPARMOR_DIR` environment
+  variable to override the default (handy for testing against a copy).
 
-> Most of `/etc/apparmor.d` is only readable by root. Either run as root or
-> point the tool at a readable copy
-> (`cp -a /etc/apparmor.d ~/apparmor.d`, then make it readable by your user).
+> Most of `/etc/apparmor.d` is only readable by root, and writing/reapplying
+> needs root too, so run the tool as root for real edits. To just inspect as a
+> normal user, point it at a readable copy — e.g.
+> `LINUXAUDITMGR_APPARMOR_DIR=~/apparmor.d` after
+> `cp -a /etc/apparmor.d ~/apparmor.d` and making it readable.
 
 The **Denials** sub-tab cross-references the two: it pulls the AppArmor
 `DENIED` events out of the audit log loaded in the Audit Log tab, aggregates
@@ -58,10 +62,23 @@ Load a log in the Audit Log tab, then open the Denials sub-tab (it refreshes on
 display, or use **Refresh**). Path matching understands AppArmor globs
 (`*`, `**`, `?`, `{a,b}`).
 
-For an **implicit** denial, select it and use the **Actions...** menu (or
-right-click the row) to **Allow** or **Deny** the access — this adds the
-corresponding rule (a file/ptrace/signal allow or `deny` rule) to the profile's
-source file, after a confirmation dialog showing the exact rule and file. Writes are crash-safe — the new contents are
+Select a denial and use the **Actions...** menu (or right-click the row) to
+edit the profile's source file, after a confirmation dialog showing the exact
+change and file:
+
+- for an **implicit** denial, **Allow** or **Deny** the access (adds a
+  file/ptrace/signal allow or `deny` rule). The generated rule is shown in an
+  editable field first, so you can adjust it — most usefully to widen the exact
+  denied path into a glob (e.g. `/home/*/.cache/**`) before writing. When the
+  new rule is a file rule, any existing file rules it covers are tidied up:
+  overlapping permissions are removed from them, and a rule left with no
+  permissions is deleted. This is done conservatively (same decision / `audit`
+  / `owner` qualifier, and only existing rules with a concrete, glob-free path)
+  so the effective policy is unchanged — the new, broader rule still covers
+  whatever was trimmed away;
+- for an **explicit-deny** denial, **Reverse this deny rule to allow** — the
+  matched `deny` rule is rewritten in place with its `deny` qualifier removed
+  (other qualifiers like `audit` are kept). Writes are crash-safe — the new contents are
 written to a temp file in the same directory, fsync'd, re-parsed for validity,
 and only then atomically `rename()`d over the original, so a crash mid-write
 cannot corrupt or lose the profile.

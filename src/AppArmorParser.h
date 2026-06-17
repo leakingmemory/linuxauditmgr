@@ -36,6 +36,12 @@ const char* ruleKindName(RuleKind kind);
 // ("read, write, mmap, inherit-exec"). Returns an empty string if perms empty.
 std::string describePerms(const std::string& perms);
 
+// Translate an audit file mask (which may contain letters like 'c' create or
+// 'd' delete that are not valid rule permissions) into the equivalent AppArmor
+// rule permission string, de-duplicated and order-preserving. 'c'/'d' map to
+// 'w'; unknown letters are dropped; 'w' subsumes 'a'.
+std::string normalizeFilePerms(const std::string& mask);
+
 struct Rule {
     Decision    decision = Decision::Allow;
     bool        audit    = false;  // rule was prefixed with "audit"
@@ -45,6 +51,11 @@ struct Rule {
     std::string perms;             // file rules only (e.g. "rwmix"); else empty
     std::string raw;               // original rule text, trailing comma removed
     int         line     = 0;
+    // Byte range [startOffset, endOffset) of the rule text in the source
+    // (excluding the terminating comma). Valid against the original file thanks
+    // to length-preserving comment stripping. Used to rewrite a rule in place.
+    std::size_t startOffset = 0;
+    std::size_t endOffset   = 0;
 };
 
 struct Profile {

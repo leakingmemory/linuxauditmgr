@@ -67,6 +67,23 @@ TEST_CASE("buildRule renders allow and deny rules per class") {
     CHECK_FALSE(buildRule(dbus, Decision::Allow).has_value());
 }
 
+TEST_CASE("buildRule maps audit-mask create/delete letters to valid perms") {
+    // 'c' (create) and 'd' (delete) are not rule permissions; they map to 'w'.
+    CHECK(*buildRule(fileDenial("p", "/dev/shm/R*", "c"), Decision::Allow) ==
+          "/dev/shm/R* w,");
+    CHECK(*buildRule(fileDenial("p", "/tmp/x", "d"), Decision::Allow) ==
+          "/tmp/x w,");
+    CHECK(*buildRule(fileDenial("p", "/tmp/x", "rc"), Decision::Allow) ==
+          "/tmp/x rw,");
+    // 'w' already covers append, and duplicates collapse.
+    CHECK(*buildRule(fileDenial("p", "/tmp/x", "wc"), Decision::Allow) ==
+          "/tmp/x w,");
+
+    CHECK(normalizeFilePerms("c") == "w");
+    CHECK(normalizeFilePerms("wr") == "wr"); // order preserved
+    CHECK(normalizeFilePerms("rwcd") == "rw");
+}
+
 TEST_CASE("addRuleToProfile inserts the rule inside the profile body") {
     const std::string before =
         "profile demo /usr/bin/demo {\n"
@@ -87,6 +104,118 @@ TEST_CASE("addRuleToProfile inserts the rule inside the profile body") {
     auto profiles = parseText(after, "demo");
     REQUIRE(profiles.size() == 1);
     CHECK(profiles[0].rules.size() == 2);
+
+    std::filesystem::remove_all(path.parent_path());
+}
+
+TEST_CASE("addRuleToProfile subsumes covered rules: trims perms, deletes empties") {
+    const std::string before =
+        "profile demo /usr/bin/demo {\n"
+        "  /etc/keep r,\n"                  // not covered by /var/** -> untouched
+        "  /var/log/app.log r,\n"           // fully covered (r) -> deleted
+        "  /var/lib/app/db rwk,\n"          // partially covered (rw) -> becomes k
+        "  deny /var/secret w,\n"           // different decision -> untouched
+        "  /var/glob/* rw,\n"               // glob target -> untouched (not concrete)
+        "}\n";
+    auto path = writeTemp("demo_sub", before);
+
+    auto res = addRuleToProfile(path.string(), "demo", "/var/** rw,");
+    CHECK(res.ok);
+
+    const std::string after = slurp(path);
+    auto profiles = parseText(after, "demo");
+    REQUIRE(profiles.size() == 1);
+    const auto& rules = profiles[0].rules;
+
+    auto find = [&](const std::string& target) -> const apparmor::Rule* {
+        for (const auto& r : rules)
+            if (r.target == target)
+                return &r;
+        return nullptr;
+    };
+
+    // Unrelated and non-concrete and cross-decision rules are preserved.
+    CHECK(find("/etc/keep") != nullptr);
+    CHECK(find("/var/glob/*") != nullptr);
+    const apparmor::Rule* secret = nullptr;
+    for (const auto& r : rules)
+        if (r.target == "/var/secret" && r.decision == Decision::Deny)
+            secret = &r;
+    CHECK(secret != nullptr);
+
+    // Fully-covered rule removed; partially-covered rule keeps only "k".
+    CHECK(find("/var/log/app.log") == nullptr);
+    REQUIRE(find("/var/lib/app/db") != nullptr);
+    CHECK(find("/var/lib/app/db")->perms == "k");
+
+    // The new rule is present.
+    REQUIRE(find("/var/**") != nullptr);
+    CHECK(find("/var/**")->perms == "rw");
+
+    std::filesystem::remove_all(path.parent_path());
+}
+
+TEST_CASE("addRuleToProfile only subsumes same owner/audit qualifier") {
+    const std::string before =
+        "profile demo {\n"
+        "  owner /data/x r,\n"   // owner-conditional -> not covered by plain rule
+        "  /data/y r,\n"         // plain -> covered and removed
+        "}\n";
+    auto path = writeTemp("demo_qual", before);
+
+    auto res = addRuleToProfile(path.string(), "demo", "/data/** r,");
+    CHECK(res.ok);
+    const std::string after = slurp(path);
+    CHECK(after.find("owner /data/x r,") != std::string::npos); // kept
+    CHECK(after.find("/data/y r,") == std::string::npos);       // removed
+
+    std::filesystem::remove_all(path.parent_path());
+}
+
+TEST_CASE("reverseDenyRule turns a deny rule into an allow in place") {
+    const std::string before =
+        "profile demo /usr/bin/demo {\n"
+        "  /etc/a r,\n"
+        "  deny /usr/bin/apt-cache x,\n"
+        "  audit deny /tmp/log w,\n"
+        "}\n";
+    auto path = writeTemp("demo3", before);
+
+    auto res = reverseDenyRule(path.string(), "demo", "deny /usr/bin/apt-cache x");
+    CHECK(res.ok);
+
+    const std::string after = slurp(path);
+    // The deny became a plain allow; the other rules are untouched.
+    CHECK(after.find("/usr/bin/apt-cache x,") != std::string::npos);
+    CHECK(after.find("deny /usr/bin/apt-cache") == std::string::npos);
+    CHECK(after.find("audit deny /tmp/log w,") != std::string::npos);
+
+    auto profiles = parseText(after, "demo");
+    REQUIRE(profiles.size() == 1);
+    CHECK(profiles[0].rules.size() == 3); // count unchanged
+    std::size_t denies = 0;
+    for (const auto& r : profiles[0].rules)
+        if (r.decision == Decision::Deny)
+            ++denies;
+    CHECK(denies == 1); // one fewer deny than before
+
+    // "audit deny" keeps the audit qualifier when reversed.
+    auto res2 = reverseDenyRule(path.string(), "demo", "audit deny /tmp/log w");
+    CHECK(res2.ok);
+    const std::string after2 = slurp(path);
+    CHECK(after2.find("audit /tmp/log w,") != std::string::npos);
+    CHECK(after2.find("deny /tmp/log") == std::string::npos);
+
+    std::filesystem::remove_all(path.parent_path());
+}
+
+TEST_CASE("reverseDenyRule leaves the file untouched when the rule is gone") {
+    const std::string before = "profile demo {\n  /etc/a r,\n}\n";
+    auto path = writeTemp("demo4", before);
+
+    auto res = reverseDenyRule(path.string(), "demo", "deny /etc/secret w");
+    CHECK_FALSE(res.ok);
+    CHECK(slurp(path) == before); // byte-for-byte unchanged
 
     std::filesystem::remove_all(path.parent_path());
 }

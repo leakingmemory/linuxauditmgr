@@ -31,6 +31,14 @@ EditResult addRuleToProfile(const std::string& file,
                             const std::string& profileName,
                             const std::string& rule);
 
+// Reverse an explicit deny rule into an allow, crash-safely: find the rule in
+// the named profile whose text matches `denyRuleRaw` (e.g. the matched rule of
+// an "explicit deny" denial) and rewrite it in place with the leading `deny`
+// qualifier removed. The file is re-parsed to validate before replacing.
+EditResult reverseDenyRule(const std::string& file,
+                           const std::string& profileName,
+                           const std::string& denyRuleRaw);
+
 // True if the process can load profiles into the kernel (i.e. runs as root).
 bool canReloadProfiles();
 

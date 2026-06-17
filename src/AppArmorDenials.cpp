@@ -234,9 +234,10 @@ void correlate(std::vector<DenialGroup>& groups,
                 if (!globMatch(r.target, g.sample.target))
                     continue;
                 // A perm-less deny (deny <path>,) covers everything; otherwise
-                // the denied mask must overlap the rule's permissions.
+                // the denied mask (normalized to rule permissions) must overlap
+                // the rule's permissions.
                 if (!r.perms.empty() &&
-                    !masksOverlap(r.perms, g.sample.deniedMask))
+                    !masksOverlap(r.perms, normalizeFilePerms(g.sample.deniedMask)))
                     continue;
             }
             match = &r;

@@ -7,6 +7,7 @@
 #include <wx/menu.h>
 #include <wx/msgdlg.h>
 #include <wx/splitter.h>
+#include <wx/textdlg.h>
 
 #include "AppArmorEditor.h"
 
@@ -18,6 +19,7 @@ enum {
     ID_DenAction,
     ID_DenAllow,
     ID_DenDeny,
+    ID_DenReverse,
 };
 
 constexpr int kColProfile = 0;
@@ -32,6 +34,18 @@ std::string toLower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(),
                    [](unsigned char c) { return std::tolower(c); });
     return s;
+}
+
+// Trim surrounding whitespace and any trailing commas, then re-add exactly one
+// trailing comma so an edited rule stays well-formed.
+std::string normalizeRule(std::string s) {
+    auto isws = [](unsigned char c) { return std::isspace(c) != 0; };
+    while (!s.empty() && (isws(s.back()) || s.back() == ','))
+        s.pop_back();
+    const std::size_t first = s.find_first_not_of(" \t");
+    if (first == std::string::npos)
+        return {};
+    return s.substr(first) + ',';
 }
 
 wxString formatTime(double epoch) {
@@ -67,6 +81,7 @@ wxBEGIN_EVENT_TABLE(AppArmorDenialsPanel, wxPanel)
     EVT_BUTTON(ID_DenAction, AppArmorDenialsPanel::onActionButton)
     EVT_MENU(ID_DenAllow, AppArmorDenialsPanel::onAllow)
     EVT_MENU(ID_DenDeny, AppArmorDenialsPanel::onDeny)
+    EVT_MENU(ID_DenReverse, AppArmorDenialsPanel::onReverse)
     EVT_TEXT(ID_DenSearch, AppArmorDenialsPanel::onFilterChanged)
     EVT_LIST_ITEM_SELECTED(ID_DenList, AppArmorDenialsPanel::onItemSelected)
     EVT_LIST_ITEM_RIGHT_CLICK(ID_DenList, AppArmorDenialsPanel::onListRightClick)
@@ -235,14 +250,27 @@ bool AppArmorDenialsPanel::selectionEditable() const {
            apparmor::buildRule(g.sample, apparmor::Decision::Allow).has_value();
 }
 
+bool AppArmorDenialsPanel::selectionReversible() const {
+    // An explicit deny rule (matched in a loaded profile) can be reversed.
+    if (m_selected < 0 || static_cast<std::size_t>(m_selected) >= m_groups.size())
+        return false;
+    const apparmor::DenialGroup& g = m_groups[m_selected];
+    const bool haveDir = m_profiles && !m_profiles().directory.empty();
+    return g.correlation == apparmor::Correlation::ExplicitDeny &&
+           !g.matchedRule.empty() && !g.profileFile.empty() && haveDir;
+}
+
 void AppArmorDenialsPanel::popupActionMenu() {
     wxMenu menu;
     if (selectionEditable()) {
         menu.Append(ID_DenAllow, "Allow this access in the profile");
         menu.Append(ID_DenDeny, "Deny this access in the profile");
+    } else if (selectionReversible()) {
+        menu.Append(ID_DenReverse, "Reverse this deny rule to allow");
     } else {
-        wxMenuItem* hint =
-            menu.Append(wxID_ANY, "Select an implicit denial to allow or deny");
+        wxMenuItem* hint = menu.Append(
+            wxID_ANY, "Select an implicit denial (to allow/deny) or an "
+                      "explicit-deny one (to reverse)");
         hint->Enable(false);
     }
     PopupMenu(&menu);
@@ -269,6 +297,65 @@ void AppArmorDenialsPanel::onDeny(wxCommandEvent&) {
     applyDecision(apparmor::Decision::Deny);
 }
 
+void AppArmorDenialsPanel::onReverse(wxCommandEvent&) {
+    applyReverse();
+}
+
+// Shared tail for both edit operations: optionally reapply, report, reload.
+bool AppArmorDenialsPanel::finishEdit(const apparmor::EditResult& r,
+                                      const wxString& file) {
+    if (!r.ok) {
+        wxMessageBox(wxString::FromUTF8(r.message), "AppArmor edit failed",
+                     wxOK | wxICON_ERROR, this);
+        return false;
+    }
+
+    wxString outcome = wxString::FromUTF8(r.message);
+    long icon = wxICON_INFORMATION;
+    if (m_reapplyChk && m_reapplyChk->IsEnabled() && m_reapplyChk->IsChecked()) {
+        apparmor::ReloadResult rr =
+            apparmor::reloadProfile(file.ToStdString());
+        outcome += "\n\n" + wxString::FromUTF8(rr.message);
+        if (!rr.ok)
+            icon = wxICON_WARNING; // change was written, but reload failed
+    } else {
+        outcome += "\n\nReload AppArmor (apparmor_parser -r) to apply it.";
+    }
+    wxMessageBox(outcome, "AppArmor edit", wxOK | icon, this);
+
+    // Re-parse the profiles and recompute so the change is reflected.
+    if (m_reloadProfiles)
+        m_reloadProfiles();
+    refresh();
+    return true;
+}
+
+void AppArmorDenialsPanel::applyReverse() {
+    if (!selectionReversible())
+        return;
+    const apparmor::DenialGroup& g = m_groups[m_selected];
+
+    const wxString dir = wxString::FromUTF8(m_profiles().directory);
+    const wxString file = dir + "/" + wxString::FromUTF8(g.profileFile);
+
+    wxString msg = "Reverse this deny rule into an allow rule?\n\n";
+    msg += "    " + wxString::FromUTF8(g.matchedRule) + "\n\n";
+    msg += "Profile: " + wxString::FromUTF8(g.sample.profile) + "\n";
+    msg += "File:    " + file + "\n\n";
+    msg += "The 'deny' qualifier is removed so the access is allowed (crash-"
+           "safely via a temp file).";
+
+    wxMessageDialog confirm(this, msg, "Confirm AppArmor edit",
+                            wxYES_NO | wxICON_QUESTION);
+    confirm.SetYesNoLabels("&Reverse rule", "&Cancel");
+    if (confirm.ShowModal() != wxID_YES)
+        return;
+
+    apparmor::EditResult r = apparmor::reverseDenyRule(
+        file.ToStdString(), g.sample.profile, g.matchedRule);
+    finishEdit(r, file);
+}
+
 void AppArmorDenialsPanel::applyDecision(apparmor::Decision decision) {
     if (m_selected < 0 || static_cast<std::size_t>(m_selected) >= m_groups.size())
         return;
@@ -286,46 +373,35 @@ void AppArmorDenialsPanel::applyDecision(apparmor::Decision decision) {
     const wxString verb = (decision == apparmor::Decision::Deny) ? "Deny"
                                                                  : "Allow";
 
-    wxString msg = verb + " this access by adding a rule to the profile?\n\n";
-    msg += "    " + wxString::FromUTF8(*rule) + "\n\n";
-    msg += "Profile: " + wxString::FromUTF8(g.sample.profile) + "\n";
-    msg += "File:    " + file + "\n\n";
-    msg += "The rule is written to the profile file (crash-safely via a temp "
-           "file). Reload it into the kernel with `apparmor_parser -r` for it "
-           "to take effect.";
+    // Let the user edit the rule before it is written. This matters most for
+    // path rules, where you usually want to widen the exact denied path into a
+    // glob (e.g. /home/*/.cache/** rather than one specific file).
+    wxString prompt = verb + " this access by adding a rule to the profile.\n"
+                             "Edit it if you want (e.g. widen a path with "
+                             "* or ** globs):\n\n";
+    prompt += "Profile: " + wxString::FromUTF8(g.sample.profile) + "\n";
+    prompt += "File:    " + file;
 
-    wxMessageDialog confirm(this, msg, "Confirm AppArmor edit",
-                            wxYES_NO | wxICON_QUESTION);
-    confirm.SetYesNoLabels("&Write rule", "&Cancel");
-    if (confirm.ShowModal() != wxID_YES)
+    wxTextEntryDialog dlg(this, prompt, "Confirm AppArmor edit",
+                          wxString::FromUTF8(*rule));
+    if (wxSize sz = dlg.GetSize(); sz.GetWidth() < 600) {
+        sz.SetWidth(720);
+        dlg.SetSize(sz);
+        dlg.CentreOnParent();
+    }
+    if (dlg.ShowModal() != wxID_OK)
         return;
+
+    const std::string finalRule = normalizeRule(dlg.GetValue().ToStdString());
+    if (finalRule.empty()) {
+        wxMessageBox("The rule is empty; nothing was written.", "AppArmor edit",
+                     wxOK | wxICON_INFORMATION, this);
+        return;
+    }
 
     apparmor::EditResult r = apparmor::addRuleToProfile(
-        file.ToStdString(), g.sample.profile, *rule);
-
-    if (!r.ok) {
-        wxMessageBox(wxString::FromUTF8(r.message), "AppArmor edit failed",
-                     wxOK | wxICON_ERROR, this);
-        return;
-    }
-
-    wxString outcome = wxString::FromUTF8(r.message);
-    long icon = wxICON_INFORMATION;
-    if (m_reapplyChk && m_reapplyChk->IsEnabled() && m_reapplyChk->IsChecked()) {
-        apparmor::ReloadResult rr =
-            apparmor::reloadProfile(file.ToStdString());
-        outcome += "\n\n" + wxString::FromUTF8(rr.message);
-        if (!rr.ok)
-            icon = wxICON_WARNING; // rule was written, but reload failed
-    } else {
-        outcome += "\n\nReload AppArmor (apparmor_parser -r) to apply it.";
-    }
-    wxMessageBox(outcome, "AppArmor edit", wxOK | icon, this);
-
-    // Re-parse the profiles and recompute so the change is reflected.
-    if (m_reloadProfiles)
-        m_reloadProfiles();
-    refresh();
+        file.ToStdString(), g.sample.profile, finalRule);
+    finishEdit(r, file);
 }
 
 wxString AppArmorDenialsPanel::OnGetItemText(long item, long column) const {
