@@ -22,6 +22,26 @@ resolved values (`SYSCALL=read`, `AUID="sigsegv"`, …) when present.
 - Substring filter and per-record-type filter for cutting through volume.
 - Virtual list control, so tens of thousands of events stay responsive.
 
+### AppArmor profile viewer
+
+A second tab parses a directory of AppArmor profiles (e.g. `/etc/apparmor.d`)
+and shows, per profile, what access it **gives** (allow rules) versus **takes**
+(explicit `deny` rules):
+
+- One row per profile (nested child profiles / hats are shown indented), with
+  its enforcement **mode** (enforce / complain) and a count of gives vs takes.
+- Detail pane grouping the allowed and denied access by kind — files (with the
+  permission string decoded, e.g. `rwk → read, write, lock`), capabilities,
+  network, signal, ptrace, D-Bus, mount, etc. — plus the inherited abstraction
+  includes and the source file:line.
+- Substring filter over profile name, attachment path and rule text.
+- Defaults to a readable `~/apparmor.d` copy if present, otherwise
+  `/etc/apparmor.d`; use **Browse…** to point it anywhere.
+
+> Most of `/etc/apparmor.d` is only readable by root. Either run as root or
+> point the tool at a readable copy
+> (`cp -a /etc/apparmor.d ~/apparmor.d`, then make it readable by your user).
+
 ## Build
 
 Requires a C++26 compiler (GCC 15+/Clang 19+), CMake ≥ 3.28, and
@@ -64,10 +84,12 @@ On launch the tool defaults to `/var/log/audit/audit.log` if readable
 
 | File | Responsibility |
 |------|----------------|
-| `src/AuditParser.*` | Record/Event model, line parsing, hex decoding, summaries |
-| `src/LogTailer.*`   | Background read-all and live-follow with rotation handling |
-| `src/MainFrame.*`   | wxWidgets UI (controls, virtual event list, detail pane) |
-| `src/App.cpp`       | `wxApp` entry point |
+| `src/AuditParser.*`  | Record/Event model, line parsing, hex decoding, summaries |
+| `src/LogTailer.*`    | Background read-all and live-follow with rotation handling |
+| `src/AppArmorParser.*` | AppArmor profile model + parser (gives/takes, child profiles) |
+| `src/MainFrame.*`    | wxWidgets UI: notebook hosting the audit + AppArmor tabs |
+| `src/AppArmorPanel.*` | wxWidgets UI for the AppArmor profile tab |
+| `src/App.cpp`        | `wxApp` entry point |
 
 ## Notes
 

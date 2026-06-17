@@ -1,0 +1,79 @@
+#pragma once
+
+#include <cstddef>
+#include <string>
+#include <vector>
+
+// A pragmatic parser for AppArmor profile files (the kind found under
+// /etc/apparmor.d). It is intentionally lenient: it extracts the structure a
+// human reviewer cares about — which profile attaches to what, and what access
+// it *gives* (allow rules) versus *takes away* (deny rules) — rather than
+// validating the full AppArmor grammar.
+namespace apparmor {
+
+// Whether a rule grants access or explicitly removes it.
+enum class Decision { Allow, Deny };
+
+// Coarse classification of a rule, used to group the "gives"/"takes" views.
+enum class RuleKind {
+    File,
+    Capability,
+    Network,
+    Signal,
+    Ptrace,
+    Dbus,
+    Unix,
+    Mount,
+    ChangeProfile,
+    Link,
+    Rlimit,
+    Other,
+};
+
+const char* ruleKindName(RuleKind kind);
+
+// Expand a file permission string (e.g. "rwmix") into a human description
+// ("read, write, mmap, inherit-exec"). Returns an empty string if perms empty.
+std::string describePerms(const std::string& perms);
+
+struct Rule {
+    Decision    decision = Decision::Allow;
+    bool        audit    = false;  // rule was prefixed with "audit"
+    bool        owner    = false;  // file rule was prefixed with "owner"
+    RuleKind    kind     = RuleKind::Other;
+    std::string target;            // path, capability name, or rule spec
+    std::string perms;             // file rules only (e.g. "rwmix"); else empty
+    std::string raw;               // original rule text, trailing comma removed
+    int         line     = 0;
+};
+
+struct Profile {
+    std::string name;                    // profile name
+    std::string attachment;              // attachment path, if any
+    std::vector<std::string> flags;      // e.g. "complain", "attach_disconnected"
+    std::vector<std::string> includes;   // abstraction/local includes
+    std::vector<Rule>        rules;
+    std::vector<Profile>     children;   // nested child profiles / hats
+    std::string sourceFile;              // file the profile was read from
+    int         startLine = 0;
+
+    bool complain() const;               // runs in complain (log-only) mode
+    std::size_t allowCount() const;      // allow rules at this level
+    std::size_t denyCount() const;       // deny rules at this level
+};
+
+struct ParseResult {
+    std::vector<Profile>     profiles;   // top-level profiles, sorted by name
+    std::vector<std::string> errors;     // unreadable files, etc.
+    std::size_t              filesParsed = 0;
+};
+
+// Parse every top-level profile file in a directory (non-recursive; the
+// abstractions/, tunables/, abi/, … subdirectories are not profiles).
+ParseResult parseDirectory(const std::string& dir);
+
+// Parse profile text directly (used by the tests and by parseDirectory).
+std::vector<Profile> parseText(const std::string& text,
+                               const std::string& sourceFile = "");
+
+} // namespace apparmor

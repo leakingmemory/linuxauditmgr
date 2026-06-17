@@ -4,7 +4,10 @@
 #include <cctype>
 
 #include <wx/filedlg.h>
+#include <wx/notebook.h>
 #include <wx/splitter.h>
+
+#include "AppArmorPanel.h"
 
 namespace {
 enum {
@@ -28,6 +31,18 @@ std::string toLower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(),
                    [](unsigned char c) { return std::tolower(c); });
     return s;
+}
+
+// Default directory for the AppArmor tab: prefer a readable user copy, then
+// the system location. The user usually cannot read all of /etc/apparmor.d
+// without root, so a copy under $HOME is the convenient default when present.
+wxString defaultAppArmorDir() {
+    const wxString candidates[] = {wxGetHomeDir() + "/apparmor.d",
+                                   "/etc/apparmor.d"};
+    for (const auto& c : candidates)
+        if (wxDirExists(c))
+            return c;
+    return "/etc/apparmor.d";
 }
 } // namespace
 
@@ -63,7 +78,10 @@ MainFrame::MainFrame(const wxString& initialPath)
     : wxFrame(nullptr, wxID_ANY, "Linux Audit Manager",
               wxDefaultPosition, wxSize(1100, 720)) {
 
-    auto* root = new wxPanel(this);
+    auto* notebook = new wxNotebook(this, wxID_ANY);
+
+    // --- Page 1: the audit log viewer (built on its own panel) ---
+    auto* root = new wxPanel(notebook);
     auto* rootSizer = new wxBoxSizer(wxVERTICAL);
 
     // --- Row 1: file path + browse ---
@@ -119,6 +137,12 @@ MainFrame::MainFrame(const wxString& initialPath)
     rootSizer->Add(splitter, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
     root->SetSizer(rootSizer);
+
+    // --- Page 2: AppArmor profile viewer ---
+    auto* apparmor = new AppArmorPanel(notebook, defaultAppArmorDir());
+
+    notebook->AddPage(root, "Audit Log");
+    notebook->AddPage(apparmor, "AppArmor Profiles");
 
     CreateStatusBar();
     SetStatusText("Ready. Choose a log file, then Read Current Logs or Start Live.");
