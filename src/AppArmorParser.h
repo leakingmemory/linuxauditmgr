@@ -84,6 +84,10 @@ struct ParseResult {
     std::string              directory;  // the directory that was parsed
 };
 
+// List the candidate top-level profile files in a directory (full paths,
+// sorted; non-recursive, skipping README/backups and subdirectories).
+std::vector<std::string> listProfileFiles(const std::string& dir);
+
 // Parse every top-level profile file in a directory (non-recursive; the
 // abstractions/, tunables/, abi/, … subdirectories are not profiles).
 ParseResult parseDirectory(const std::string& dir);

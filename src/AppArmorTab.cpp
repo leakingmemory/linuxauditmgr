@@ -4,6 +4,7 @@
 
 #include "AppArmorEventsPanel.h"
 #include "AppArmorPanel.h"
+#include "AppArmorValidationPanel.h"
 
 wxBEGIN_EVENT_TABLE(AppArmorTab, wxPanel)
     EVT_NOTEBOOK_PAGE_CHANGED(wxID_ANY, AppArmorTab::onSubPageChanged)
@@ -30,10 +31,12 @@ AppArmorTab::AppArmorTab(wxWindow* parent, const wxString& initialDir,
     m_allows = new AppArmorEventsPanel(m_notebook,
                                        AppArmorEventsPanel::Mode::Allows,
                                        std::move(events), profiles, reload);
+    m_validation = new AppArmorValidationPanel(m_notebook, profiles);
 
     m_notebook->AddPage(m_profiles, "Profiles");
     m_notebook->AddPage(m_denials, "Denials");
     m_notebook->AddPage(m_allows, "Allows");
+    m_notebook->AddPage(m_validation, "Validation");
 
     auto* sizer = new wxBoxSizer(wxVERTICAL);
     sizer->Add(m_notebook, 1, wxEXPAND);

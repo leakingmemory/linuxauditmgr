@@ -24,7 +24,8 @@ resolved values (`SYSCALL=read`, `AUID="sigsegv"`, …) when present.
 
 ### AppArmor profile viewer
 
-A second tab has three sub-tabs: **Profiles**, **Denials** and **Allows**. The
+A second tab has four sub-tabs: **Profiles**, **Denials**, **Allows** and
+**Validation**. The
 **Profiles** sub-tab parses a directory of
 AppArmor profiles (e.g. `/etc/apparmor.d`) and shows, per profile, what access
 it **gives** (allow rules) versus **takes** (explicit `deny` rules):
@@ -105,6 +106,18 @@ The complain-mode-only entries are the actionable ones: select one and use the
 write as Denials), so the access keeps working after you switch the profile back
 to enforce.
 
+The **Validation** sub-tab checks the profile files with the real
+`apparmor_parser` tool — `apparmor_parser -Q --skip-cache <file>` compiles each
+profile (resolving its includes) without loading it into the kernel or touching
+the policy cache, so it works as a normal user. Press **Validate profiles** and
+it lists the files that fail, with the parser's error message; select one for
+the full output. Validation spawns one parser per file, so it runs on a
+background thread with a live progress count and never freezes the UI.
+
+> As a normal user the root-only (`0600`) profiles under `/etc/apparmor.d`
+> cannot be read, so they show up as read errors; run as root (or validate a
+> readable copy) to check the whole set.
+
 ## Build
 
 Requires a C++26 compiler (GCC 15+/Clang 19+), CMake ≥ 3.28, and
@@ -152,10 +165,12 @@ On launch the tool defaults to `/var/log/audit/audit.log` if readable
 | `src/AppArmorParser.*` | AppArmor profile model + parser (gives/takes, child profiles) |
 | `src/AppArmorDenials.*` | Denial/allow extraction, aggregation, glob match + rule correlation |
 | `src/AppArmorEditor.*` | Rule generation + crash-safe insertion into profile files |
+| `src/AppArmorValidator.*` | Validate profile files via `apparmor_parser -Q --skip-cache` |
 | `src/MainFrame.*`    | wxWidgets UI: notebook hosting the audit + AppArmor tabs |
-| `src/AppArmorTab.*`  | AppArmor tab: inner notebook with Profiles + Denials + Allows sub-tabs |
+| `src/AppArmorTab.*`  | AppArmor tab: inner notebook with the four sub-tabs |
 | `src/AppArmorPanel.*` | wxWidgets UI for the AppArmor profile (gives/takes) sub-tab |
 | `src/AppArmorEventsPanel.*` | wxWidgets UI for the Denials and Allows sub-tabs (by mode) |
+| `src/AppArmorValidationPanel.*` | wxWidgets UI for the Validation sub-tab (background-threaded) |
 | `src/App.cpp`        | `wxApp` entry point |
 
 ## Notes

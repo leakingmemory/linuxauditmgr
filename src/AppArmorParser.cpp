@@ -412,30 +412,41 @@ std::vector<Profile> parseText(const std::string& text,
     return top;
 }
 
+std::vector<std::string> listProfileFiles(const std::string& dir) {
+    namespace fs = std::filesystem;
+    std::vector<std::string> out;
+    std::error_code ec;
+    fs::directory_iterator it(dir, ec), end;
+    if (ec)
+        return out;
+    for (; it != end; it.increment(ec)) {
+        if (ec)
+            break;
+        std::error_code fec;
+        if (!it->is_regular_file(fec))
+            continue; // skip abstractions/, tunables/, … subdirectories
+        if (skipName(it->path().filename().string()))
+            continue;
+        out.push_back(it->path().string());
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
 ParseResult parseDirectory(const std::string& dir) {
     ParseResult result;
     result.directory = dir;
     namespace fs = std::filesystem;
 
     std::error_code ec;
-    fs::directory_iterator it(dir, ec), end;
-    if (ec) {
-        result.errors.push_back(dir + ": " + ec.message());
+    if (!fs::is_directory(dir, ec) || ec) {
+        result.errors.push_back(dir + ": not a readable directory");
         return result;
     }
 
-    for (; it != end; it.increment(ec)) {
-        if (ec)
-            break;
-        const fs::directory_entry& entry = *it;
-        std::error_code fec;
-        if (!entry.is_regular_file(fec))
-            continue; // skip abstractions/, tunables/, … subdirectories
-        const std::string name = entry.path().filename().string();
-        if (skipName(name))
-            continue;
-
-        std::ifstream in(entry.path());
+    for (const std::string& path : listProfileFiles(dir)) {
+        const std::string name = fs::path(path).filename().string();
+        std::ifstream in(path);
         if (!in) {
             result.errors.push_back(name + ": cannot read (permission?)");
             continue;
