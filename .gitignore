@@ -1,0 +1,19 @@
+# Sample / local audit logs — never commit these
+audit.log
+audit.log*
+
+# Build output
+/build/
+/cmake-build-*/
+
+# Editor / IDE
+.idea/
+.vscode/
+.cache/
+compile_commands.json
+*.user
+
+# Misc
+*.o
+*.obj
+*.swp
