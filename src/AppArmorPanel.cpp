@@ -64,7 +64,7 @@ AppArmorPanel::AppArmorPanel(wxWindow* parent, const wxString& initialDir)
     m_dirCtrl = new wxTextCtrl(this, ID_AaDir, initialDir, wxDefaultPosition,
                                wxDefaultSize, wxTE_PROCESS_ENTER);
     dirRow->Add(m_dirCtrl, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-    dirRow->Add(new wxButton(this, ID_AaBrowse, "Browse…"), 0, wxRIGHT, 6);
+    dirRow->Add(new wxButton(this, ID_AaBrowse, "Browse..."), 0, wxRIGHT, 6);
     dirRow->Add(new wxButton(this, ID_AaReload, "Reload"), 0);
     sizer->Add(dirRow, 0, wxEXPAND | wxALL, 8);
 
@@ -74,7 +74,7 @@ AppArmorPanel::AppArmorPanel(wxWindow* parent, const wxString& initialDir)
                    wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
     m_searchCtrl = new wxTextCtrl(this, ID_AaSearch, "", wxDefaultPosition,
                                   wxDefaultSize, wxTE_PROCESS_ENTER);
-    m_searchCtrl->SetHint("profile name, path or rule…");
+    m_searchCtrl->SetHint("profile name, path or rule...");
     filterRow->Add(m_searchCtrl, 1, wxALIGN_CENTER_VERTICAL);
     sizer->Add(filterRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
@@ -171,6 +171,10 @@ void AppArmorPanel::onReload(wxCommandEvent&) {
     loadDir(m_dirCtrl->GetValue());
 }
 
+void AppArmorPanel::reload() {
+    loadDir(m_dirCtrl->GetValue());
+}
+
 void AppArmorPanel::onFilterChanged(wxCommandEvent&) {
     rebuildFilter();
 }
@@ -193,7 +197,7 @@ wxString AppArmorPanel::OnGetItemText(long item, long column) const {
         wxString name = wxString::FromUTF8(p.name.empty() ? p.attachment
                                                           : p.name);
         if (r.depth > 0)
-            name = wxString(' ', r.depth * 2) + "↳ " + name;
+            name = wxString(' ', r.depth * 2) + "> " + name;
         return name;
     }
     case kColMode:   return p.complain() ? "complain" : "enforce";
@@ -273,8 +277,8 @@ wxString AppArmorPanel::detailFor(const apparmor::Profile& p) const {
         }
     };
 
-    section("GIVES — access this profile allows:", Decision::Allow);
-    section("TAKES — access this profile explicitly denies:", Decision::Deny);
+    section("GIVES - access this profile allows:", Decision::Allow);
+    section("TAKES - access this profile explicitly denies:", Decision::Deny);
 
     if (!p.children.empty()) {
         line("");

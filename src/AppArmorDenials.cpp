@@ -127,12 +127,16 @@ const Profile* findProfile(const std::vector<Profile>& profiles,
 }
 
 RuleKind kindForOperation(const Denial& d) {
-    if (d.klass == "file" || (!d.target.empty() && d.target[0] == '/'))
+    // Class/operation wins; the '/' path heuristic is only a fallback, because
+    // a ptrace/signal peer can itself be a path.
+    if (d.klass == "file")
         return RuleKind::File;
     if (d.operation == "ptrace" || d.klass == "ptrace")
         return RuleKind::Ptrace;
     if (d.operation == "signal" || d.klass == "signal")
         return RuleKind::Signal;
+    if (!d.target.empty() && d.target[0] == '/')
+        return RuleKind::File;
     return RuleKind::Other;
 }
 
@@ -219,6 +223,7 @@ void correlate(std::vector<DenialGroup>& groups,
             g.correlation = Correlation::Unknown;
             continue;
         }
+        g.profileFile = prof->sourceFile;
 
         const RuleKind wantKind = kindForOperation(g.sample);
         const Rule* match = nullptr;

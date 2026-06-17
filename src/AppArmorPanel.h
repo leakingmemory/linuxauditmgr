@@ -16,6 +16,9 @@ public:
     // The most recently parsed profiles (for cross-referencing, e.g. denials).
     const apparmor::ParseResult& result() const { return m_result; }
 
+    // Re-parse the currently selected directory (e.g. after an external edit).
+    void reload();
+
 private:
     void onBrowse(wxCommandEvent&);
     void onReload(wxCommandEvent&);

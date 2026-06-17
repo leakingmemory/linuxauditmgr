@@ -58,6 +58,21 @@ Load a log in the Audit Log tab, then open the Denials sub-tab (it refreshes on
 display, or use **Refresh**). Path matching understands AppArmor globs
 (`*`, `**`, `?`, `{a,b}`).
 
+For an **implicit** denial, select it and use the **Actions...** menu (or
+right-click the row) to **Allow** or **Deny** the access — this adds the
+corresponding rule (a file/ptrace/signal allow or `deny` rule) to the profile's
+source file, after a confirmation dialog showing the exact rule and file. Writes are crash-safe — the new contents are
+written to a temp file in the same directory, fsync'd, re-parsed for validity,
+and only then atomically `rename()`d over the original, so a crash mid-write
+cannot corrupt or lose the profile.
+
+By default the change is written to the file only; reload it into the kernel
+with `apparmor_parser -r` for it to take effect. When the tool runs as **root**,
+the **Reapply profile (apparmor_parser -r)** toggle (enabled and on by default
+only for uid 0) makes it reload the edited profile into the kernel immediately
+after writing, reporting the parser's output if it fails. Run as a normal user
+the toggle is disabled and labelled *(needs root)*.
+
 ## Build
 
 Requires a C++26 compiler (GCC 15+/Clang 19+), CMake ≥ 3.28, and
@@ -104,6 +119,7 @@ On launch the tool defaults to `/var/log/audit/audit.log` if readable
 | `src/LogTailer.*`    | Background read-all and live-follow with rotation handling |
 | `src/AppArmorParser.*` | AppArmor profile model + parser (gives/takes, child profiles) |
 | `src/AppArmorDenials.*` | Denial extraction, aggregation, glob match + deny-rule correlation |
+| `src/AppArmorEditor.*` | Rule generation + crash-safe insertion into profile files |
 | `src/MainFrame.*`    | wxWidgets UI: notebook hosting the audit + AppArmor tabs |
 | `src/AppArmorTab.*`  | AppArmor tab: inner notebook with Profiles + Denials sub-tabs |
 | `src/AppArmorPanel.*` | wxWidgets UI for the AppArmor profile (gives/takes) sub-tab |

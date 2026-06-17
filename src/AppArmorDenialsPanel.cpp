@@ -4,13 +4,20 @@
 #include <cctype>
 #include <ctime>
 
+#include <wx/menu.h>
+#include <wx/msgdlg.h>
 #include <wx/splitter.h>
+
+#include "AppArmorEditor.h"
 
 namespace {
 enum {
     ID_DenSearch = wxID_HIGHEST + 200,
     ID_DenReload,
     ID_DenList,
+    ID_DenAction,
+    ID_DenAllow,
+    ID_DenDeny,
 };
 
 constexpr int kColProfile = 0;
@@ -57,24 +64,48 @@ private:
 
 wxBEGIN_EVENT_TABLE(AppArmorDenialsPanel, wxPanel)
     EVT_BUTTON(ID_DenReload, AppArmorDenialsPanel::onRefresh)
+    EVT_BUTTON(ID_DenAction, AppArmorDenialsPanel::onActionButton)
+    EVT_MENU(ID_DenAllow, AppArmorDenialsPanel::onAllow)
+    EVT_MENU(ID_DenDeny, AppArmorDenialsPanel::onDeny)
     EVT_TEXT(ID_DenSearch, AppArmorDenialsPanel::onFilterChanged)
     EVT_LIST_ITEM_SELECTED(ID_DenList, AppArmorDenialsPanel::onItemSelected)
+    EVT_LIST_ITEM_RIGHT_CLICK(ID_DenList, AppArmorDenialsPanel::onListRightClick)
 wxEND_EVENT_TABLE()
 
 AppArmorDenialsPanel::AppArmorDenialsPanel(wxWindow* parent,
                                            EventsProvider events,
-                                           ProfilesProvider profiles)
+                                           ProfilesProvider profiles,
+                                           ReloadProfiles reload)
     : wxPanel(parent), m_events(std::move(events)),
-      m_profiles(std::move(profiles)) {
+      m_profiles(std::move(profiles)), m_reloadProfiles(std::move(reload)) {
     auto* sizer = new wxBoxSizer(wxVERTICAL);
 
-    // --- Row 1: explanation + refresh ---
+    // --- Row 1: explanation + actions ---
     auto* topRow = new wxBoxSizer(wxHORIZONTAL);
     m_summary = new wxStaticText(
         this, wxID_ANY,
         "AppArmor denials from the loaded audit log. Load a log in the Audit "
         "Log tab, then Refresh.");
     topRow->Add(m_summary, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+    // Reapply the edited profile into the kernel after writing. Only possible
+    // as root (apparmor_parser needs privilege), so disable it otherwise.
+    const bool root = apparmor::canReloadProfiles();
+    m_reapplyChk = new wxCheckBox(
+        this, wxID_ANY,
+        root ? "Reapply profile (apparmor_parser -r)"
+             : "Reapply profile (needs root)");
+    m_reapplyChk->SetValue(root);
+    m_reapplyChk->Enable(root);
+    m_reapplyChk->SetToolTip(
+        root ? "After writing the rule, reload the profile into the kernel so "
+               "the change takes effect immediately."
+             : "Run the tool as root to reapply profiles into the kernel.");
+    topRow->Add(m_reapplyChk, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 16);
+
+    // Per-denial actions live in a dropdown menu (also available by
+    // right-clicking a row), so they stay visible regardless of selection.
+    m_actionBtn = new wxButton(this, ID_DenAction, "Actions...");
+    topRow->Add(m_actionBtn, 0, wxRIGHT, 16);
     topRow->Add(new wxButton(this, ID_DenReload, "Refresh"), 0);
     sizer->Add(topRow, 0, wxEXPAND | wxALL, 8);
 
@@ -84,7 +115,7 @@ AppArmorDenialsPanel::AppArmorDenialsPanel(wxWindow* parent,
                    wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
     m_searchCtrl = new wxTextCtrl(this, ID_DenSearch, "", wxDefaultPosition,
                                   wxDefaultSize, wxTE_PROCESS_ENTER);
-    m_searchCtrl->SetHint("profile, operation, path…");
+    m_searchCtrl->SetHint("profile, operation, path...");
     filterRow->Add(m_searchCtrl, 1, wxALIGN_CENTER_VERTICAL);
     sizer->Add(filterRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
@@ -122,7 +153,8 @@ void AppArmorDenialsPanel::refresh() {
 
     m_groups = apparmor::aggregateDenials(denials);
     if (m_profiles)
-        apparmor::correlate(m_groups, m_profiles());
+        apparmor::correlate(m_groups, m_profiles().profiles);
+    m_selected = -1;
 
     std::size_t explicitDeny = 0, implicit = 0, unknown = 0;
     for (const auto& g : m_groups) {
@@ -179,6 +211,7 @@ void AppArmorDenialsPanel::onRefresh(wxCommandEvent&) {
 }
 
 void AppArmorDenialsPanel::onFilterChanged(wxCommandEvent&) {
+    m_selected = -1;
     rebuildFilter();
 }
 
@@ -186,7 +219,113 @@ void AppArmorDenialsPanel::onItemSelected(wxListEvent& evt) {
     long row = evt.GetIndex();
     if (row < 0 || static_cast<std::size_t>(row) >= m_filtered.size())
         return;
-    m_detail->SetValue(detailFor(m_groups[m_filtered[row]]));
+    m_selected = static_cast<long>(m_filtered[row]);
+    m_detail->SetValue(detailFor(m_groups[m_selected]));
+}
+
+bool AppArmorDenialsPanel::selectionEditable() const {
+    // Only implicit denials of a loaded profile, in a class we can express,
+    // can be turned into a rule.
+    if (m_selected < 0 || static_cast<std::size_t>(m_selected) >= m_groups.size())
+        return false;
+    const apparmor::DenialGroup& g = m_groups[m_selected];
+    const bool haveDir = m_profiles && !m_profiles().directory.empty();
+    return g.correlation == apparmor::Correlation::Implicit &&
+           !g.profileFile.empty() && haveDir &&
+           apparmor::buildRule(g.sample, apparmor::Decision::Allow).has_value();
+}
+
+void AppArmorDenialsPanel::popupActionMenu() {
+    wxMenu menu;
+    if (selectionEditable()) {
+        menu.Append(ID_DenAllow, "Allow this access in the profile");
+        menu.Append(ID_DenDeny, "Deny this access in the profile");
+    } else {
+        wxMenuItem* hint =
+            menu.Append(wxID_ANY, "Select an implicit denial to allow or deny");
+        hint->Enable(false);
+    }
+    PopupMenu(&menu);
+}
+
+void AppArmorDenialsPanel::onActionButton(wxCommandEvent&) {
+    popupActionMenu();
+}
+
+void AppArmorDenialsPanel::onListRightClick(wxListEvent& evt) {
+    long row = evt.GetIndex();
+    if (row >= 0 && static_cast<std::size_t>(row) < m_filtered.size()) {
+        m_selected = static_cast<long>(m_filtered[row]);
+        m_detail->SetValue(detailFor(m_groups[m_selected]));
+    }
+    popupActionMenu();
+}
+
+void AppArmorDenialsPanel::onAllow(wxCommandEvent&) {
+    applyDecision(apparmor::Decision::Allow);
+}
+
+void AppArmorDenialsPanel::onDeny(wxCommandEvent&) {
+    applyDecision(apparmor::Decision::Deny);
+}
+
+void AppArmorDenialsPanel::applyDecision(apparmor::Decision decision) {
+    if (m_selected < 0 || static_cast<std::size_t>(m_selected) >= m_groups.size())
+        return;
+    const apparmor::DenialGroup& g = m_groups[m_selected];
+
+    auto rule = apparmor::buildRule(g.sample, decision);
+    if (!rule) {
+        wxMessageBox("Cannot generate a rule for this denial class.",
+                     "AppArmor edit", wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+
+    const wxString dir = wxString::FromUTF8(m_profiles().directory);
+    const wxString file = dir + "/" + wxString::FromUTF8(g.profileFile);
+    const wxString verb = (decision == apparmor::Decision::Deny) ? "Deny"
+                                                                 : "Allow";
+
+    wxString msg = verb + " this access by adding a rule to the profile?\n\n";
+    msg += "    " + wxString::FromUTF8(*rule) + "\n\n";
+    msg += "Profile: " + wxString::FromUTF8(g.sample.profile) + "\n";
+    msg += "File:    " + file + "\n\n";
+    msg += "The rule is written to the profile file (crash-safely via a temp "
+           "file). Reload it into the kernel with `apparmor_parser -r` for it "
+           "to take effect.";
+
+    wxMessageDialog confirm(this, msg, "Confirm AppArmor edit",
+                            wxYES_NO | wxICON_QUESTION);
+    confirm.SetYesNoLabels("&Write rule", "&Cancel");
+    if (confirm.ShowModal() != wxID_YES)
+        return;
+
+    apparmor::EditResult r = apparmor::addRuleToProfile(
+        file.ToStdString(), g.sample.profile, *rule);
+
+    if (!r.ok) {
+        wxMessageBox(wxString::FromUTF8(r.message), "AppArmor edit failed",
+                     wxOK | wxICON_ERROR, this);
+        return;
+    }
+
+    wxString outcome = wxString::FromUTF8(r.message);
+    long icon = wxICON_INFORMATION;
+    if (m_reapplyChk && m_reapplyChk->IsEnabled() && m_reapplyChk->IsChecked()) {
+        apparmor::ReloadResult rr =
+            apparmor::reloadProfile(file.ToStdString());
+        outcome += "\n\n" + wxString::FromUTF8(rr.message);
+        if (!rr.ok)
+            icon = wxICON_WARNING; // rule was written, but reload failed
+    } else {
+        outcome += "\n\nReload AppArmor (apparmor_parser -r) to apply it.";
+    }
+    wxMessageBox(outcome, "AppArmor edit", wxOK | icon, this);
+
+    // Re-parse the profiles and recompute so the change is reflected.
+    if (m_reloadProfiles)
+        m_reloadProfiles();
+    refresh();
 }
 
 wxString AppArmorDenialsPanel::OnGetItemText(long item, long column) const {
@@ -234,7 +373,7 @@ wxString AppArmorDenialsPanel::detailFor(const apparmor::DenialGroup& g) const {
              "so the rule was written as `audit deny`.)");
         break;
     case apparmor::Correlation::Implicit:
-        line("No explicit deny rule matches — this is an implicit denial: the "
+        line("No explicit deny rule matches - this is an implicit denial: the "
              "profile simply does not allow this access.");
         line("");
         line("To permit it, add an allow rule to the profile; to silence it "

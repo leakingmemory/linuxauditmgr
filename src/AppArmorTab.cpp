@@ -17,12 +17,12 @@ AppArmorTab::AppArmorTab(wxWindow* parent, const wxString& initialDir,
     m_profiles = new AppArmorPanel(m_notebook, initialDir);
 
     // The denials view reads the live audit events from the audit tab and the
-    // profiles currently loaded in the Profiles sub-tab.
+    // profiles currently loaded in the Profiles sub-tab, and can ask it to
+    // re-parse after writing a rule.
     m_denials = new AppArmorDenialsPanel(
         m_notebook, std::move(events),
-        [this]() -> const std::vector<apparmor::Profile>& {
-            return m_profiles->result().profiles;
-        });
+        [this]() -> const apparmor::ParseResult& { return m_profiles->result(); },
+        [this]() { m_profiles->reload(); });
 
     m_notebook->AddPage(m_profiles, "Profiles");
     m_notebook->AddPage(m_denials, "Denials");

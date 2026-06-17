@@ -46,7 +46,8 @@ struct DenialGroup {
     double      firstSeen = 0.0;
     double      lastSeen = 0.0;
     Correlation correlation = Correlation::Unknown;
-    std::string matchedRule; // raw text of the matching deny rule, if any
+    std::string matchedRule;  // raw text of the matching deny rule, if any
+    std::string profileFile;  // source file of the matched profile (for editing)
 };
 
 // Collapse identical denials (same profile/operation/target/denied mask).

@@ -31,29 +31,31 @@ std::vector<std::string> splitWhitespace(const std::string& s) {
     return out;
 }
 
-// Remove '#' comments while preserving line count and "#include" directives.
+// Blank out '#' comments with spaces, preserving every byte offset (and the
+// "#include" directive). Keeping the length identical to the original text lets
+// the parser record byte offsets that are valid against the file on disk.
 std::string stripComments(const std::string& text) {
-    std::string out;
-    out.reserve(text.size());
-    std::istringstream iss(text);
-    std::string line;
-    bool first = true;
-    while (std::getline(iss, line)) {
-        if (!first)
-            out.push_back('\n');
-        first = false;
-
-        std::size_t hash = line.find('#');
-        // Keep the line intact if the only '#' starts an "#include" directive.
-        while (hash != std::string::npos) {
-            if (line.compare(hash, 8, "#include") == 0) {
-                hash = line.find('#', hash + 8);
+    std::string out = text;
+    bool inComment = false;
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        char c = out[i];
+        if (c == '\n') {
+            inComment = false;
+            continue;
+        }
+        if (inComment) {
+            out[i] = ' ';
+            continue;
+        }
+        if (c == '#') {
+            // "#include" is a directive, not a comment.
+            if (out.compare(i, 8, "#include") == 0) {
+                i += 7;
                 continue;
             }
-            line.erase(hash);
-            break;
+            inComment = true;
+            out[i] = ' ';
         }
-        out += line;
     }
     return out;
 }
@@ -305,7 +307,8 @@ std::vector<Profile> parseText(const std::string& text,
             stack.back().children.push_back(std::move(done));
     };
 
-    for (char c : clean) {
+    for (std::size_t i = 0; i < clean.size(); ++i) {
+        const char c = clean[i];
         if (c == '\n') {
             const std::string t = trim(buf);
             if (globDepth == 0 &&
@@ -344,6 +347,8 @@ std::vector<Profile> parseText(const std::string& text,
                 if (!t.empty() && !stack.empty())
                     addRule(stack.back(), t, bufStartLine);
                 buf.clear();
+                if (!stack.empty())
+                    stack.back().bodyEndOffset = i;
                 closeProfile();
             }
             continue;
@@ -375,6 +380,7 @@ std::vector<Profile> parseText(const std::string& text,
 
 ParseResult parseDirectory(const std::string& dir) {
     ParseResult result;
+    result.directory = dir;
     namespace fs = std::filesystem;
 
     std::error_code ec;

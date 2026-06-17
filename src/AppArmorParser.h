@@ -56,6 +56,10 @@ struct Profile {
     std::vector<Profile>     children;   // nested child profiles / hats
     std::string sourceFile;              // file the profile was read from
     int         startLine = 0;
+    // Byte offset of this profile body's closing '}' in the source text. Used
+    // to insert new rules just before it. Length-preserving comment stripping
+    // keeps this valid against the original file.
+    std::size_t bodyEndOffset = 0;
 
     bool complain() const;               // runs in complain (log-only) mode
     std::size_t allowCount() const;      // allow rules at this level
@@ -66,6 +70,7 @@ struct ParseResult {
     std::vector<Profile>     profiles;   // top-level profiles, sorted by name
     std::vector<std::string> errors;     // unreadable files, etc.
     std::size_t              filesParsed = 0;
+    std::string              directory;  // the directory that was parsed
 };
 
 // Parse every top-level profile file in a directory (non-recursive; the
