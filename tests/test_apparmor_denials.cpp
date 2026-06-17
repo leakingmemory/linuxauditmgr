@@ -18,6 +18,64 @@ audit::Event eventFromLine(const std::string& line) {
 }
 } // namespace
 
+TEST_CASE("allowFromEvent extracts ALLOWED records, not DENIED ones") {
+    const std::string allowed =
+        R"(type=AVC msg=audit(1.0:1): apparmor="ALLOWED" operation="open" )"
+        R"(class="file" profile="/usr/bin/app" name="/etc/app.conf" pid=42 )"
+        R"(comm="app" requested_mask="r" denied_mask="r")";
+
+    auto a = allowFromEvent(eventFromLine(allowed));
+    REQUIRE(a.has_value());
+    CHECK(a->profile == "/usr/bin/app");
+    CHECK(a->target == "/etc/app.conf");
+    CHECK(a->requestedMask == "r");
+    CHECK_FALSE(denialFromEvent(eventFromLine(allowed)).has_value());
+
+    const std::string denied =
+        R"(type=AVC msg=audit(1.0:2): apparmor="DENIED" operation="open" profile="p")";
+    CHECK_FALSE(allowFromEvent(eventFromLine(denied)).has_value());
+}
+
+TEST_CASE("correlateAllows distinguishes by-rule, complain-only and unknown") {
+    auto profiles = parseText(R"(
+profile enforced /usr/bin/enforced {
+  /etc/allowed r,
+}
+profile lax /usr/bin/lax flags=(complain) {
+  /etc/known r,
+}
+)",
+                              "p");
+
+    auto mk = [](const char* prof, const char* target, const char* mask) {
+        DenialGroup g;
+        g.sample.profile = prof;
+        g.sample.operation = "open";
+        g.sample.klass = "file";
+        g.sample.target = target;
+        g.sample.requestedMask = mask;
+        g.count = 1;
+        return g;
+    };
+
+    std::vector<DenialGroup> groups = {
+        mk("/usr/bin/enforced", "/etc/allowed", "r"),  // matching allow rule
+        mk("/usr/bin/lax", "/etc/known", "r"),         // matched -> by rule
+        mk("/usr/bin/lax", "/etc/other", "r"),         // complain, no rule
+        mk("/usr/bin/enforced", "/etc/x", "r"),        // enforce, no rule -> abstraction
+        mk("/usr/bin/missing", "/x", "r"),             // profile not loaded
+    };
+    correlateAllows(groups, profiles);
+
+    CHECK(groups[0].correlation == Correlation::AllowedByRule);
+    CHECK(groups[0].matchedRule == "/etc/allowed r");
+    CHECK(groups[1].correlation == Correlation::AllowedByRule);
+    CHECK(groups[2].correlation == Correlation::ComplainOnly);
+    CHECK(groups[3].correlation == Correlation::AllowedByRule); // via abstraction
+    CHECK(groups[3].matchedRule.empty());
+    CHECK(groups[4].correlation == Correlation::Unknown);
+}
+
 TEST_CASE("globMatch handles stars, double-stars and braces") {
     CHECK(globMatch("/usr/bin/foo", "/usr/bin/foo"));
     CHECK_FALSE(globMatch("/usr/bin/foo", "/usr/bin/bar"));

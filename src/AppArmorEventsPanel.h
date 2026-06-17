@@ -11,11 +11,14 @@
 #include "AppArmorParser.h"
 #include "AuditParser.h"
 
-// Inner sub-tab of the AppArmor tab: shows the AppArmor DENIED events found in
-// the currently loaded audit log, aggregated and correlated with the loaded
-// profiles' deny rules.
-class AppArmorDenialsPanel : public wxPanel {
+// Inner sub-tab of the AppArmor tab: shows the AppArmor mediation events found
+// in the currently loaded audit log, aggregated and correlated with the loaded
+// profiles' rules. The same panel serves the DENIED events ("Denials") and the
+// ALLOWED events ("Allows"), selected by Mode.
+class AppArmorEventsPanel : public wxPanel {
 public:
+    enum class Mode { Denials, Allows };
+
     // eventsProvider yields the audit events currently loaded in the audit tab;
     // profilesProvider yields the currently parsed AppArmor profiles (with the
     // directory they came from); reloadProfiles re-parses them after an edit.
@@ -23,8 +26,8 @@ public:
     using ProfilesProvider = std::function<const apparmor::ParseResult&()>;
     using ReloadProfiles = std::function<void()>;
 
-    AppArmorDenialsPanel(wxWindow* parent, EventsProvider events,
-                         ProfilesProvider profiles, ReloadProfiles reload);
+    AppArmorEventsPanel(wxWindow* parent, Mode mode, EventsProvider events,
+                        ProfilesProvider profiles, ReloadProfiles reload);
 
     // Recompute from the current audit events + profiles.
     void refresh();
@@ -52,6 +55,7 @@ private:
     class DenialList;
     wxString OnGetItemText(long item, long column) const;
 
+    Mode             m_mode;
     EventsProvider   m_events;
     ProfilesProvider m_profiles;
     ReloadProfiles   m_reloadProfiles;

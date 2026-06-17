@@ -2,7 +2,7 @@
 
 #include <wx/notebook.h>
 
-#include "AppArmorDenialsPanel.h"
+#include "AppArmorEventsPanel.h"
 #include "AppArmorPanel.h"
 
 wxBEGIN_EVENT_TABLE(AppArmorTab, wxPanel)
@@ -16,16 +16,24 @@ AppArmorTab::AppArmorTab(wxWindow* parent, const wxString& initialDir,
 
     m_profiles = new AppArmorPanel(m_notebook, initialDir);
 
-    // The denials view reads the live audit events from the audit tab and the
-    // profiles currently loaded in the Profiles sub-tab, and can ask it to
+    // The denials/allows views read the live audit events from the audit tab
+    // and the profiles loaded in the Profiles sub-tab, and can ask it to
     // re-parse after writing a rule.
-    m_denials = new AppArmorDenialsPanel(
-        m_notebook, std::move(events),
-        [this]() -> const apparmor::ParseResult& { return m_profiles->result(); },
-        [this]() { m_profiles->reload(); });
+    auto profiles = [this]() -> const apparmor::ParseResult& {
+        return m_profiles->result();
+    };
+    auto reload = [this]() { m_profiles->reload(); };
+
+    m_denials = new AppArmorEventsPanel(m_notebook,
+                                        AppArmorEventsPanel::Mode::Denials,
+                                        events, profiles, reload);
+    m_allows = new AppArmorEventsPanel(m_notebook,
+                                       AppArmorEventsPanel::Mode::Allows,
+                                       std::move(events), profiles, reload);
 
     m_notebook->AddPage(m_profiles, "Profiles");
     m_notebook->AddPage(m_denials, "Denials");
+    m_notebook->AddPage(m_allows, "Allows");
 
     auto* sizer = new wxBoxSizer(wxVERTICAL);
     sizer->Add(m_notebook, 1, wxEXPAND);
@@ -33,9 +41,14 @@ AppArmorTab::AppArmorTab(wxWindow* parent, const wxString& initialDir,
 }
 
 void AppArmorTab::onSubPageChanged(wxBookCtrlEvent& evt) {
-    // Recompute denials when that sub-tab is brought to the front, so it
-    // reflects the latest audit log and loaded profiles.
-    if (m_notebook && m_notebook->GetPage(evt.GetSelection()) == m_denials)
-        m_denials->refresh();
+    // Recompute a sub-tab when it is brought to the front, so it reflects the
+    // latest audit log and loaded profiles.
+    if (m_notebook) {
+        wxWindow* page = m_notebook->GetPage(evt.GetSelection());
+        if (page == m_denials)
+            m_denials->refresh();
+        else if (page == m_allows)
+            m_allows->refresh();
+    }
     evt.Skip();
 }

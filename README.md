@@ -24,7 +24,8 @@ resolved values (`SYSCALL=read`, `AUID="sigsegv"`, …) when present.
 
 ### AppArmor profile viewer
 
-A second tab has two sub-tabs. The **Profiles** sub-tab parses a directory of
+A second tab has three sub-tabs: **Profiles**, **Denials** and **Allows**. The
+**Profiles** sub-tab parses a directory of
 AppArmor profiles (e.g. `/etc/apparmor.d`) and shows, per profile, what access
 it **gives** (allow rules) versus **takes** (explicit `deny` rules):
 
@@ -90,6 +91,20 @@ only for uid 0) makes it reload the edited profile into the kernel immediately
 after writing, reporting the parser's output if it fails. Run as a normal user
 the toggle is disabled and labelled *(needs root)*.
 
+The **Allows** sub-tab is the mirror image of Denials: it shows the AppArmor
+`ALLOWED` events from the loaded log (logged in complain mode, or by an `audit`
+allow rule), aggregated and correlated with the profiles' allow rules:
+
+- **allowed by rule** — an allow rule in the profile matches (shown in the
+  detail pane; if it's not in the profile file it comes from an abstraction);
+- **complain-mode only** — nothing permits this, so it is allowed *only* because
+  the profile is in complain mode and **would be denied once it enforces**.
+
+The complain-mode-only entries are the actionable ones: select one and use the
+**Actions...** menu to add the allow rule (same editable dialog and crash-safe
+write as Denials), so the access keeps working after you switch the profile back
+to enforce.
+
 ## Build
 
 Requires a C++26 compiler (GCC 15+/Clang 19+), CMake ≥ 3.28, and
@@ -135,12 +150,12 @@ On launch the tool defaults to `/var/log/audit/audit.log` if readable
 | `src/AuditParser.*`  | Record/Event model, line parsing, hex decoding, summaries |
 | `src/LogTailer.*`    | Background read-all and live-follow with rotation handling |
 | `src/AppArmorParser.*` | AppArmor profile model + parser (gives/takes, child profiles) |
-| `src/AppArmorDenials.*` | Denial extraction, aggregation, glob match + deny-rule correlation |
+| `src/AppArmorDenials.*` | Denial/allow extraction, aggregation, glob match + rule correlation |
 | `src/AppArmorEditor.*` | Rule generation + crash-safe insertion into profile files |
 | `src/MainFrame.*`    | wxWidgets UI: notebook hosting the audit + AppArmor tabs |
-| `src/AppArmorTab.*`  | AppArmor tab: inner notebook with Profiles + Denials sub-tabs |
+| `src/AppArmorTab.*`  | AppArmor tab: inner notebook with Profiles + Denials + Allows sub-tabs |
 | `src/AppArmorPanel.*` | wxWidgets UI for the AppArmor profile (gives/takes) sub-tab |
-| `src/AppArmorDenialsPanel.*` | wxWidgets UI for the AppArmor denials sub-tab |
+| `src/AppArmorEventsPanel.*` | wxWidgets UI for the Denials and Allows sub-tabs (by mode) |
 | `src/App.cpp`        | `wxApp` entry point |
 
 ## Notes

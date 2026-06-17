@@ -1,4 +1,4 @@
-#include "AppArmorDenialsPanel.h"
+#include "AppArmorEventsPanel.h"
 
 #include <algorithm>
 #include <cctype>
@@ -60,9 +60,9 @@ wxString formatTime(double epoch) {
 }
 } // namespace
 
-class AppArmorDenialsPanel::DenialList : public wxListCtrl {
+class AppArmorEventsPanel::DenialList : public wxListCtrl {
 public:
-    DenialList(AppArmorDenialsPanel* owner, wxWindow* parent)
+    DenialList(AppArmorEventsPanel* owner, wxWindow* parent)
         : wxListCtrl(parent, ID_DenList, wxDefaultPosition, wxDefaultSize,
                      wxLC_REPORT | wxLC_VIRTUAL | wxLC_SINGLE_SEL),
           m_owner(owner) {}
@@ -73,34 +73,37 @@ protected:
     }
 
 private:
-    AppArmorDenialsPanel* m_owner;
+    AppArmorEventsPanel* m_owner;
 };
 
-wxBEGIN_EVENT_TABLE(AppArmorDenialsPanel, wxPanel)
-    EVT_BUTTON(ID_DenReload, AppArmorDenialsPanel::onRefresh)
-    EVT_BUTTON(ID_DenAction, AppArmorDenialsPanel::onActionButton)
-    EVT_MENU(ID_DenAllow, AppArmorDenialsPanel::onAllow)
-    EVT_MENU(ID_DenDeny, AppArmorDenialsPanel::onDeny)
-    EVT_MENU(ID_DenReverse, AppArmorDenialsPanel::onReverse)
-    EVT_TEXT(ID_DenSearch, AppArmorDenialsPanel::onFilterChanged)
-    EVT_LIST_ITEM_SELECTED(ID_DenList, AppArmorDenialsPanel::onItemSelected)
-    EVT_LIST_ITEM_RIGHT_CLICK(ID_DenList, AppArmorDenialsPanel::onListRightClick)
+wxBEGIN_EVENT_TABLE(AppArmorEventsPanel, wxPanel)
+    EVT_BUTTON(ID_DenReload, AppArmorEventsPanel::onRefresh)
+    EVT_BUTTON(ID_DenAction, AppArmorEventsPanel::onActionButton)
+    EVT_MENU(ID_DenAllow, AppArmorEventsPanel::onAllow)
+    EVT_MENU(ID_DenDeny, AppArmorEventsPanel::onDeny)
+    EVT_MENU(ID_DenReverse, AppArmorEventsPanel::onReverse)
+    EVT_TEXT(ID_DenSearch, AppArmorEventsPanel::onFilterChanged)
+    EVT_LIST_ITEM_SELECTED(ID_DenList, AppArmorEventsPanel::onItemSelected)
+    EVT_LIST_ITEM_RIGHT_CLICK(ID_DenList, AppArmorEventsPanel::onListRightClick)
 wxEND_EVENT_TABLE()
 
-AppArmorDenialsPanel::AppArmorDenialsPanel(wxWindow* parent,
-                                           EventsProvider events,
-                                           ProfilesProvider profiles,
-                                           ReloadProfiles reload)
-    : wxPanel(parent), m_events(std::move(events)),
+AppArmorEventsPanel::AppArmorEventsPanel(wxWindow* parent, Mode mode,
+                                         EventsProvider events,
+                                         ProfilesProvider profiles,
+                                         ReloadProfiles reload)
+    : wxPanel(parent), m_mode(mode), m_events(std::move(events)),
       m_profiles(std::move(profiles)), m_reloadProfiles(std::move(reload)) {
+    const bool allows = m_mode == Mode::Allows;
     auto* sizer = new wxBoxSizer(wxVERTICAL);
 
     // --- Row 1: explanation + actions ---
     auto* topRow = new wxBoxSizer(wxHORIZONTAL);
     m_summary = new wxStaticText(
         this, wxID_ANY,
-        "AppArmor denials from the loaded audit log. Load a log in the Audit "
-        "Log tab, then Refresh.");
+        allows ? "AppArmor allowed accesses from the loaded audit log. Load a "
+                 "log in the Audit Log tab, then Refresh."
+               : "AppArmor denials from the loaded audit log. Load a log in the "
+                 "Audit Log tab, then Refresh.");
     topRow->Add(m_summary, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
     // Reapply the edited profile into the kernel after writing. Only possible
     // as root (apparmor_parser needs privilege), so disable it otherwise.
@@ -141,10 +144,12 @@ AppArmorDenialsPanel::AppArmorDenialsPanel(wxWindow* parent,
     m_list = new DenialList(this, splitter);
     m_list->AppendColumn("Profile", wxLIST_FORMAT_LEFT, 300);
     m_list->AppendColumn("Operation", wxLIST_FORMAT_LEFT, 90);
-    m_list->AppendColumn("Denied target", wxLIST_FORMAT_LEFT, 300);
+    m_list->AppendColumn(allows ? "Allowed target" : "Denied target",
+                         wxLIST_FORMAT_LEFT, 300);
     m_list->AppendColumn("Mask", wxLIST_FORMAT_LEFT, 60);
     m_list->AppendColumn("Count", wxLIST_FORMAT_RIGHT, 70);
-    m_list->AppendColumn("Kind of denial", wxLIST_FORMAT_LEFT, 130);
+    m_list->AppendColumn(allows ? "Kind" : "Kind of denial", wxLIST_FORMAT_LEFT,
+                         150);
     m_list->AppendColumn("Last seen", wxLIST_FORMAT_LEFT, 160);
 
     m_detail = new wxTextCtrl(splitter, wxID_ANY, "", wxDefaultPosition,
@@ -158,49 +163,71 @@ AppArmorDenialsPanel::AppArmorDenialsPanel(wxWindow* parent,
     SetSizer(sizer);
 }
 
-void AppArmorDenialsPanel::refresh() {
-    std::vector<apparmor::Denial> denials;
+void AppArmorEventsPanel::refresh() {
+    const bool allows = m_mode == Mode::Allows;
+
+    std::vector<apparmor::Denial> events;
     if (m_events) {
-        for (const auto& ev : m_events())
-            if (auto d = apparmor::denialFromEvent(ev))
-                denials.push_back(std::move(*d));
+        for (const auto& ev : m_events()) {
+            auto e = allows ? apparmor::allowFromEvent(ev)
+                            : apparmor::denialFromEvent(ev);
+            if (e)
+                events.push_back(std::move(*e));
+        }
     }
 
-    m_groups = apparmor::aggregateDenials(denials);
-    if (m_profiles)
-        apparmor::correlate(m_groups, m_profiles().profiles);
+    m_groups = apparmor::aggregateDenials(events);
+    if (m_profiles) {
+        if (allows)
+            apparmor::correlateAllows(m_groups, m_profiles().profiles);
+        else
+            apparmor::correlate(m_groups, m_profiles().profiles);
+    }
     m_selected = -1;
 
-    std::size_t explicitDeny = 0, implicit = 0, unknown = 0;
+    // Count by correlation; the meaningful buckets differ per mode.
+    std::size_t a = 0, b = 0, unknown = 0;
     for (const auto& g : m_groups) {
         switch (g.correlation) {
-        case apparmor::Correlation::ExplicitDeny: ++explicitDeny; break;
-        case apparmor::Correlation::Implicit:     ++implicit; break;
-        case apparmor::Correlation::Unknown:      ++unknown; break;
+        case apparmor::Correlation::ExplicitDeny:
+        case apparmor::Correlation::AllowedByRule: ++a; break;
+        case apparmor::Correlation::Implicit:
+        case apparmor::Correlation::ComplainOnly:  ++b; break;
+        case apparmor::Correlation::Unknown:       ++unknown; break;
         }
     }
 
     if (m_groups.empty()) {
         m_summary->SetLabel(
-            "No AppArmor denials in the loaded audit log. Load a log in the "
-            "Audit Log tab, then Refresh.");
+            allows ? "No AppArmor allowed accesses in the loaded audit log. "
+                     "Load a log in the Audit Log tab, then Refresh."
+                   : "No AppArmor denials in the loaded audit log. Load a log "
+                     "in the Audit Log tab, then Refresh.");
+    } else if (allows) {
+        m_summary->SetLabel(wxString::Format(
+            "%zu distinct allowed accesses  -  %zu by a rule, %zu complain-mode "
+            "only, %zu profile not loaded",
+            m_groups.size(), a, b, unknown));
     } else {
         m_summary->SetLabel(wxString::Format(
             "%zu distinct denials  -  %zu explicit deny rule, %zu implicit, "
             "%zu profile not loaded",
-            m_groups.size(), explicitDeny, implicit, unknown));
+            m_groups.size(), a, b, unknown));
     }
     m_summary->Wrap(GetClientSize().GetWidth() - 120);
     Layout();
 
     rebuildFilter();
-    m_detail->SetValue(m_groups.empty()
-                           ? wxString()
-                           : "Select a denial to see details and the matching "
-                             "rule (if any).");
+    m_detail->SetValue(
+        m_groups.empty()
+            ? wxString()
+            : wxString(allows ? "Select an allowed access to see details and "
+                                "the matching rule (if any)."
+                              : "Select a denial to see details and the "
+                                "matching rule (if any)."));
 }
 
-bool AppArmorDenialsPanel::matches(const apparmor::DenialGroup& g) const {
+bool AppArmorEventsPanel::matches(const apparmor::DenialGroup& g) const {
     const wxString raw = m_searchCtrl ? m_searchCtrl->GetValue() : wxString();
     if (raw.empty())
         return true;
@@ -212,7 +239,7 @@ bool AppArmorDenialsPanel::matches(const apparmor::DenialGroup& g) const {
            toLower(d.comm).find(needle) != std::string::npos;
 }
 
-void AppArmorDenialsPanel::rebuildFilter() {
+void AppArmorEventsPanel::rebuildFilter() {
     m_filtered.clear();
     for (std::size_t i = 0; i < m_groups.size(); ++i)
         if (matches(m_groups[i]))
@@ -221,16 +248,16 @@ void AppArmorDenialsPanel::rebuildFilter() {
     m_list->Refresh();
 }
 
-void AppArmorDenialsPanel::onRefresh(wxCommandEvent&) {
+void AppArmorEventsPanel::onRefresh(wxCommandEvent&) {
     refresh();
 }
 
-void AppArmorDenialsPanel::onFilterChanged(wxCommandEvent&) {
+void AppArmorEventsPanel::onFilterChanged(wxCommandEvent&) {
     m_selected = -1;
     rebuildFilter();
 }
 
-void AppArmorDenialsPanel::onItemSelected(wxListEvent& evt) {
+void AppArmorEventsPanel::onItemSelected(wxListEvent& evt) {
     long row = evt.GetIndex();
     if (row < 0 || static_cast<std::size_t>(row) >= m_filtered.size())
         return;
@@ -238,20 +265,24 @@ void AppArmorDenialsPanel::onItemSelected(wxListEvent& evt) {
     m_detail->SetValue(detailFor(m_groups[m_selected]));
 }
 
-bool AppArmorDenialsPanel::selectionEditable() const {
-    // Only implicit denials of a loaded profile, in a class we can express,
-    // can be turned into a rule.
+bool AppArmorEventsPanel::selectionEditable() const {
+    // A rule can be written for an event of a loaded profile in a class we can
+    // express: implicit denials (Denials mode) or complain-only allows (Allows
+    // mode, where codifying the rule is what makes it survive enforce mode).
     if (m_selected < 0 || static_cast<std::size_t>(m_selected) >= m_groups.size())
         return false;
     const apparmor::DenialGroup& g = m_groups[m_selected];
     const bool haveDir = m_profiles && !m_profiles().directory.empty();
-    return g.correlation == apparmor::Correlation::Implicit &&
-           !g.profileFile.empty() && haveDir &&
+    const auto want = m_mode == Mode::Allows ? apparmor::Correlation::ComplainOnly
+                                             : apparmor::Correlation::Implicit;
+    return g.correlation == want && !g.profileFile.empty() && haveDir &&
            apparmor::buildRule(g.sample, apparmor::Decision::Allow).has_value();
 }
 
-bool AppArmorDenialsPanel::selectionReversible() const {
-    // An explicit deny rule (matched in a loaded profile) can be reversed.
+bool AppArmorEventsPanel::selectionReversible() const {
+    // Reversing applies only to an explicit deny rule (Denials mode).
+    if (m_mode != Mode::Denials)
+        return false;
     if (m_selected < 0 || static_cast<std::size_t>(m_selected) >= m_groups.size())
         return false;
     const apparmor::DenialGroup& g = m_groups[m_selected];
@@ -260,7 +291,7 @@ bool AppArmorDenialsPanel::selectionReversible() const {
            !g.matchedRule.empty() && !g.profileFile.empty() && haveDir;
 }
 
-void AppArmorDenialsPanel::popupActionMenu() {
+void AppArmorEventsPanel::popupActionMenu() {
     wxMenu menu;
     if (selectionEditable()) {
         menu.Append(ID_DenAllow, "Allow this access in the profile");
@@ -269,18 +300,20 @@ void AppArmorDenialsPanel::popupActionMenu() {
         menu.Append(ID_DenReverse, "Reverse this deny rule to allow");
     } else {
         wxMenuItem* hint = menu.Append(
-            wxID_ANY, "Select an implicit denial (to allow/deny) or an "
-                      "explicit-deny one (to reverse)");
+            wxID_ANY, m_mode == Mode::Allows
+                          ? "Select a complain-mode-only allow to make it a rule"
+                          : "Select an implicit denial (to allow/deny) or an "
+                            "explicit-deny one (to reverse)");
         hint->Enable(false);
     }
     PopupMenu(&menu);
 }
 
-void AppArmorDenialsPanel::onActionButton(wxCommandEvent&) {
+void AppArmorEventsPanel::onActionButton(wxCommandEvent&) {
     popupActionMenu();
 }
 
-void AppArmorDenialsPanel::onListRightClick(wxListEvent& evt) {
+void AppArmorEventsPanel::onListRightClick(wxListEvent& evt) {
     long row = evt.GetIndex();
     if (row >= 0 && static_cast<std::size_t>(row) < m_filtered.size()) {
         m_selected = static_cast<long>(m_filtered[row]);
@@ -289,20 +322,20 @@ void AppArmorDenialsPanel::onListRightClick(wxListEvent& evt) {
     popupActionMenu();
 }
 
-void AppArmorDenialsPanel::onAllow(wxCommandEvent&) {
+void AppArmorEventsPanel::onAllow(wxCommandEvent&) {
     applyDecision(apparmor::Decision::Allow);
 }
 
-void AppArmorDenialsPanel::onDeny(wxCommandEvent&) {
+void AppArmorEventsPanel::onDeny(wxCommandEvent&) {
     applyDecision(apparmor::Decision::Deny);
 }
 
-void AppArmorDenialsPanel::onReverse(wxCommandEvent&) {
+void AppArmorEventsPanel::onReverse(wxCommandEvent&) {
     applyReverse();
 }
 
 // Shared tail for both edit operations: optionally reapply, report, reload.
-bool AppArmorDenialsPanel::finishEdit(const apparmor::EditResult& r,
+bool AppArmorEventsPanel::finishEdit(const apparmor::EditResult& r,
                                       const wxString& file) {
     if (!r.ok) {
         wxMessageBox(wxString::FromUTF8(r.message), "AppArmor edit failed",
@@ -330,7 +363,7 @@ bool AppArmorDenialsPanel::finishEdit(const apparmor::EditResult& r,
     return true;
 }
 
-void AppArmorDenialsPanel::applyReverse() {
+void AppArmorEventsPanel::applyReverse() {
     if (!selectionReversible())
         return;
     const apparmor::DenialGroup& g = m_groups[m_selected];
@@ -356,7 +389,7 @@ void AppArmorDenialsPanel::applyReverse() {
     finishEdit(r, file);
 }
 
-void AppArmorDenialsPanel::applyDecision(apparmor::Decision decision) {
+void AppArmorEventsPanel::applyDecision(apparmor::Decision decision) {
     if (m_selected < 0 || static_cast<std::size_t>(m_selected) >= m_groups.size())
         return;
     const apparmor::DenialGroup& g = m_groups[m_selected];
@@ -404,7 +437,7 @@ void AppArmorDenialsPanel::applyDecision(apparmor::Decision decision) {
     finishEdit(r, file);
 }
 
-wxString AppArmorDenialsPanel::OnGetItemText(long item, long column) const {
+wxString AppArmorEventsPanel::OnGetItemText(long item, long column) const {
     if (item < 0 || static_cast<std::size_t>(item) >= m_filtered.size())
         return {};
     const apparmor::DenialGroup& g = m_groups[m_filtered[item]];
@@ -413,7 +446,8 @@ wxString AppArmorDenialsPanel::OnGetItemText(long item, long column) const {
     case kColProfile: return wxString::FromUTF8(d.profile);
     case kColOp:      return wxString::FromUTF8(d.operation);
     case kColTarget:  return wxString::FromUTF8(d.target);
-    case kColDenied:  return wxString::FromUTF8(d.deniedMask);
+    case kColDenied:  return wxString::FromUTF8(
+        m_mode == Mode::Allows ? d.requestedMask : d.deniedMask);
     case kColCount:   return wxString::Format("%zu", g.count);
     case kColKind:    return apparmor::correlationName(g.correlation);
     case kColLast:    return formatTime(g.lastSeen);
@@ -421,16 +455,18 @@ wxString AppArmorDenialsPanel::OnGetItemText(long item, long column) const {
     }
 }
 
-wxString AppArmorDenialsPanel::detailFor(const apparmor::DenialGroup& g) const {
+wxString AppArmorEventsPanel::detailFor(const apparmor::DenialGroup& g) const {
     const apparmor::Denial& d = g.sample;
     wxString out;
     auto line = [&](const wxString& s) { out += s + "\n"; };
 
+    const bool allows = m_mode == Mode::Allows;
     line("Profile:     " + wxString::FromUTF8(d.profile));
     line("Operation:   " + wxString::FromUTF8(d.operation) +
          (d.klass.empty() ? wxString()
                           : "   (class " + wxString::FromUTF8(d.klass) + ")"));
-    line("Denied:      " + wxString::FromUTF8(d.target));
+    line(wxString(allows ? "Allowed:     " : "Denied:      ") +
+         wxString::FromUTF8(d.target));
     line("Mask:        requested=" + wxString::FromUTF8(d.requestedMask) +
          "  denied=" + wxString::FromUTF8(d.deniedMask));
     line("Process:     " + wxString::FromUTF8(d.comm) + "  (pid " +
@@ -455,10 +491,27 @@ wxString AppArmorDenialsPanel::detailFor(const apparmor::DenialGroup& g) const {
         line("To permit it, add an allow rule to the profile; to silence it "
              "without allowing, add a `deny` rule.");
         break;
+    case apparmor::Correlation::AllowedByRule:
+        if (!g.matchedRule.empty()) {
+            line("Allowed by this rule in the profile:");
+            line("    " + wxString::FromUTF8(g.matchedRule));
+        } else {
+            line("Allowed by a rule that is not in this profile file - it most "
+                 "likely comes from an included abstraction.");
+        }
+        break;
+    case apparmor::Correlation::ComplainOnly:
+        line("Allowed only because the profile is in complain mode - no rule "
+             "permits this, so it WOULD BE DENIED once the profile enforces.");
+        line("");
+        line("Use the Actions menu to add an allow rule now, so the access "
+             "keeps working after you switch the profile back to enforce.");
+        break;
     case apparmor::Correlation::Unknown:
-        line("The denied profile is not among the loaded profiles, so it could "
-             "not be cross-referenced. Load the matching profiles directory in "
-             "the Profiles sub-tab.");
+        line(wxString(allows ? "The allowed" : "The denied") +
+             " profile is not among the loaded profiles, so it could not be "
+             "cross-referenced. Load the matching profiles directory in the "
+             "Profiles sub-tab.");
         break;
     }
     return out;

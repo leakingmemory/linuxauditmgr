@@ -144,9 +144,11 @@ RuleKind kindForOperation(const Denial& d) {
 
 const char* correlationName(Correlation c) {
     switch (c) {
-    case Correlation::Unknown:      return "profile not loaded";
-    case Correlation::ExplicitDeny: return "explicit deny rule";
-    case Correlation::Implicit:     return "implicit (no allow)";
+    case Correlation::Unknown:       return "profile not loaded";
+    case Correlation::ExplicitDeny:  return "explicit deny rule";
+    case Correlation::Implicit:      return "implicit (no allow)";
+    case Correlation::AllowedByRule: return "allowed by rule";
+    case Correlation::ComplainOnly:  return "complain-mode only";
     }
     return "";
 }
@@ -160,11 +162,14 @@ bool globMatch(const std::string& pattern, const std::string& text) {
     return false;
 }
 
-std::optional<Denial> denialFromEvent(const audit::Event& event) {
+namespace {
+// Extract an AppArmor mediation record with the given verdict ("DENIED" or
+// "ALLOWED") into the shared structure.
+std::optional<Denial> aaEvent(const audit::Event& event, const char* verdict) {
     const audit::Record* avc = findAvc(event);
     if (!avc)
         return std::nullopt;
-    if (strOr(avc->getResolved("apparmor")) != "DENIED")
+    if (strOr(avc->getResolved("apparmor")) != verdict)
         return std::nullopt;
 
     Denial d;
@@ -183,6 +188,15 @@ std::optional<Denial> denialFromEvent(const audit::Event& event) {
         d.target = std::string(*peer);
 
     return d;
+}
+} // namespace
+
+std::optional<Denial> denialFromEvent(const audit::Event& event) {
+    return aaEvent(event, "DENIED");
+}
+
+std::optional<Denial> allowFromEvent(const audit::Event& event) {
+    return aaEvent(event, "ALLOWED");
 }
 
 std::vector<DenialGroup> aggregateDenials(const std::vector<Denial>& denials) {
@@ -249,6 +263,49 @@ void correlate(std::vector<DenialGroup>& groups,
             g.matchedRule = match->raw;
         } else {
             g.correlation = Correlation::Implicit;
+        }
+    }
+}
+
+void correlateAllows(std::vector<DenialGroup>& groups,
+                     const std::vector<Profile>& profiles) {
+    for (auto& g : groups) {
+        const Profile* prof = findProfile(profiles, g.sample.profile);
+        if (!prof) {
+            g.correlation = Correlation::Unknown;
+            continue;
+        }
+        g.profileFile = prof->sourceFile;
+
+        const RuleKind wantKind = kindForOperation(g.sample);
+        const std::string mask = g.sample.requestedMask.empty()
+                                     ? g.sample.deniedMask
+                                     : g.sample.requestedMask;
+        const Rule* match = nullptr;
+        for (const auto& r : prof->rules) {
+            if (r.decision != Decision::Allow || r.kind != wantKind)
+                continue;
+            if (wantKind == RuleKind::File) {
+                if (!globMatch(r.target, g.sample.target))
+                    continue;
+                if (!r.perms.empty() &&
+                    !masksOverlap(r.perms, normalizeFilePerms(mask)))
+                    continue;
+            }
+            match = &r;
+            break;
+        }
+
+        if (match) {
+            g.correlation = Correlation::AllowedByRule;
+            g.matchedRule = match->raw;
+        } else if (prof->complain()) {
+            // Permitted only because enforcement is off; would be denied.
+            g.correlation = Correlation::ComplainOnly;
+        } else {
+            // Enforcing and allowed, but no rule here matched: the allow rule
+            // lives in an included abstraction we do not expand.
+            g.correlation = Correlation::AllowedByRule;
         }
     }
 }

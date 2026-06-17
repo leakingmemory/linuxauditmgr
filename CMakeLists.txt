@@ -38,7 +38,7 @@ add_executable(linuxauditmgr
     src/App.cpp
     src/MainFrame.cpp
     src/AppArmorPanel.cpp
-    src/AppArmorDenialsPanel.cpp
+    src/AppArmorEventsPanel.cpp
     src/AppArmorTab.cpp
 )
 target_link_libraries(linuxauditmgr PRIVATE auditcore ${wxWidgets_LIBRARIES})

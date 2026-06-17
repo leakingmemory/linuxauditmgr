@@ -30,11 +30,18 @@ struct Denial {
 // is not an AppArmor DENIED record.
 std::optional<Denial> denialFromEvent(const audit::Event& event);
 
-// Whether a group could be tied to an explicit deny rule in the profiles.
+// Extract an AppArmor ALLOWED record (logged in complain mode, or by an `audit`
+// allow rule) into the same structure, or nullopt if it is not one.
+std::optional<Denial> allowFromEvent(const audit::Event& event);
+
+// How a group relates to the loaded profiles. The first three describe denials,
+// the last two describe allows.
 enum class Correlation {
     Unknown,       // the profile was not found among the loaded profiles
     ExplicitDeny,  // an explicit `deny` rule in the profile matches
     Implicit,      // no rule allowed it (a silent/default denial)
+    AllowedByRule, // an explicit allow rule in the profile matches
+    ComplainOnly,  // allowed only because the profile is in complain mode
 };
 
 const char* correlationName(Correlation c);
@@ -54,9 +61,16 @@ struct DenialGroup {
 // Result is sorted by descending count.
 std::vector<DenialGroup> aggregateDenials(const std::vector<Denial>& denials);
 
-// Set each group's correlation/matchedRule against the loaded profiles.
+// Set each group's correlation/matchedRule against the loaded profiles, looking
+// for matching deny rules (for denial groups).
 void correlate(std::vector<DenialGroup>& groups,
                const std::vector<Profile>& profiles);
+
+// Same, for allow groups: looks for a matching allow rule (AllowedByRule),
+// otherwise flags entries permitted only because the profile is in complain
+// mode (ComplainOnly).
+void correlateAllows(std::vector<DenialGroup>& groups,
+                     const std::vector<Profile>& profiles);
 
 // AppArmor-style glob match. Supports '?', '*' (does not cross '/'), '**'
 // (crosses '/') and '{a,b,c}' alternation. Used to match denied paths against
