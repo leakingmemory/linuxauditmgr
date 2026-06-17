@@ -24,9 +24,9 @@ resolved values (`SYSCALL=read`, `AUID="sigsegv"`, …) when present.
 
 ### AppArmor profile viewer
 
-A second tab parses a directory of AppArmor profiles (e.g. `/etc/apparmor.d`)
-and shows, per profile, what access it **gives** (allow rules) versus **takes**
-(explicit `deny` rules):
+A second tab has two sub-tabs. The **Profiles** sub-tab parses a directory of
+AppArmor profiles (e.g. `/etc/apparmor.d`) and shows, per profile, what access
+it **gives** (allow rules) versus **takes** (explicit `deny` rules):
 
 - One row per profile (nested child profiles / hats are shown indented), with
   its enforcement **mode** (enforce / complain) and a count of gives vs takes.
@@ -41,6 +41,22 @@ and shows, per profile, what access it **gives** (allow rules) versus **takes**
 > Most of `/etc/apparmor.d` is only readable by root. Either run as root or
 > point the tool at a readable copy
 > (`cp -a /etc/apparmor.d ~/apparmor.d`, then make it readable by your user).
+
+The **Denials** sub-tab cross-references the two: it pulls the AppArmor
+`DENIED` events out of the audit log loaded in the Audit Log tab, aggregates
+identical denials (by profile / operation / target / denied mask) with a count
+and time span, and classifies each against the loaded profiles:
+
+- **explicit deny rule** — an `audit deny` rule in the profile matches (the
+  matching rule is shown in the detail pane);
+- **implicit (no allow)** — nothing in the profile allowed the access, so it
+  was denied by default. Most logged denials are implicit, because a plain
+  `deny` rule is silent (only `audit deny` is logged);
+- **profile not loaded** — the denied profile is not in the loaded directory.
+
+Load a log in the Audit Log tab, then open the Denials sub-tab (it refreshes on
+display, or use **Refresh**). Path matching understands AppArmor globs
+(`*`, `**`, `?`, `{a,b}`).
 
 ## Build
 
@@ -87,8 +103,11 @@ On launch the tool defaults to `/var/log/audit/audit.log` if readable
 | `src/AuditParser.*`  | Record/Event model, line parsing, hex decoding, summaries |
 | `src/LogTailer.*`    | Background read-all and live-follow with rotation handling |
 | `src/AppArmorParser.*` | AppArmor profile model + parser (gives/takes, child profiles) |
+| `src/AppArmorDenials.*` | Denial extraction, aggregation, glob match + deny-rule correlation |
 | `src/MainFrame.*`    | wxWidgets UI: notebook hosting the audit + AppArmor tabs |
-| `src/AppArmorPanel.*` | wxWidgets UI for the AppArmor profile tab |
+| `src/AppArmorTab.*`  | AppArmor tab: inner notebook with Profiles + Denials sub-tabs |
+| `src/AppArmorPanel.*` | wxWidgets UI for the AppArmor profile (gives/takes) sub-tab |
+| `src/AppArmorDenialsPanel.*` | wxWidgets UI for the AppArmor denials sub-tab |
 | `src/App.cpp`        | `wxApp` entry point |
 
 ## Notes

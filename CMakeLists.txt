@@ -26,6 +26,7 @@ add_library(auditcore STATIC
     src/AuditParser.cpp
     src/LogTailer.cpp
     src/AppArmorParser.cpp
+    src/AppArmorDenials.cpp
 )
 target_include_directories(auditcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(auditcore PRIVATE ${warning_flags})
@@ -36,6 +37,8 @@ add_executable(linuxauditmgr
     src/App.cpp
     src/MainFrame.cpp
     src/AppArmorPanel.cpp
+    src/AppArmorDenialsPanel.cpp
+    src/AppArmorTab.cpp
 )
 target_link_libraries(linuxauditmgr PRIVATE auditcore ${wxWidgets_LIBRARIES})
 target_compile_options(linuxauditmgr PRIVATE ${warning_flags})
@@ -48,6 +51,7 @@ if(BUILD_TESTING)
         tests/test_parser.cpp
         tests/test_tailer.cpp
         tests/test_apparmor.cpp
+        tests/test_apparmor_denials.cpp
     )
     target_link_libraries(auditmgr_tests PRIVATE auditcore Catch2::Catch2WithMain)
     target_compile_options(auditmgr_tests PRIVATE ${warning_flags})

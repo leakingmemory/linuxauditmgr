@@ -7,7 +7,7 @@
 #include <wx/notebook.h>
 #include <wx/splitter.h>
 
-#include "AppArmorPanel.h"
+#include "AppArmorTab.h"
 
 namespace {
 enum {
@@ -138,11 +138,13 @@ MainFrame::MainFrame(const wxString& initialPath)
 
     root->SetSizer(rootSizer);
 
-    // --- Page 2: AppArmor profile viewer ---
-    auto* apparmor = new AppArmorPanel(notebook, defaultAppArmorDir());
+    // --- Page 2: AppArmor (profiles + denials sub-tabs) ---
+    auto* apparmor = new AppArmorTab(
+        notebook, defaultAppArmorDir(),
+        [this]() -> const std::vector<audit::Event>& { return m_events; });
 
     notebook->AddPage(root, "Audit Log");
-    notebook->AddPage(apparmor, "AppArmor Profiles");
+    notebook->AddPage(apparmor, "AppArmor");
 
     CreateStatusBar();
     SetStatusText("Ready. Choose a log file, then Read Current Logs or Start Live.");

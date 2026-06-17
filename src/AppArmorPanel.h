@@ -13,6 +13,9 @@ class AppArmorPanel : public wxPanel {
 public:
     AppArmorPanel(wxWindow* parent, const wxString& initialDir);
 
+    // The most recently parsed profiles (for cross-referencing, e.g. denials).
+    const apparmor::ParseResult& result() const { return m_result; }
+
 private:
     void onBrowse(wxCommandEvent&);
     void onReload(wxCommandEvent&);
