@@ -33,6 +33,22 @@ cmake --build build -j
 ./build/linuxauditmgr
 ```
 
+## Tests
+
+The non-GUI core (parser + tailer) is covered by a Catch2 suite. Tests are
+built by default at top level; run them with CTest:
+
+```sh
+cmake -S . -B build -DBUILD_TESTING=ON
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
+Fixtures in `tests/fixtures.h` are **anonymized** fragments from a real
+enriched audit log (username, host paths, and kernel string scrubbed) that
+preserve the structural quirks the parser must handle: the `0x1d` enriched
+separator, quoted values, and hex-encoded `proctitle`/`exe` fields.
+
 ## Usage
 
 On launch the tool defaults to `/var/log/audit/audit.log` if readable
