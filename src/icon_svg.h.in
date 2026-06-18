@@ -1,0 +1,5 @@
+// Generated from linuxauditmgr.svg at configure time -- do not edit.
+#pragma once
+
+// The application icon, embedded so the window/taskbar icon needs no install.
+inline constexpr char kAppIconSvg[] = R"SVG(@ICON_SVG@)SVG";

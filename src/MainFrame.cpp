@@ -3,11 +3,14 @@
 #include <algorithm>
 #include <cctype>
 
+#include <wx/bmpbndl.h>
 #include <wx/filedlg.h>
+#include <wx/iconbndl.h>
 #include <wx/notebook.h>
 #include <wx/splitter.h>
 
 #include "AppArmorTab.h"
+#include "icon_svg.h"
 
 namespace {
 enum {
@@ -43,6 +46,22 @@ wxString defaultAppArmorDir() {
         return override;
     return "/etc/apparmor.d";
 }
+
+// The window/taskbar icon, rendered from the embedded SVG logo at a few sizes.
+wxIconBundle appIcons() {
+    wxIconBundle icons;
+    wxBitmapBundle bundle =
+        wxBitmapBundle::FromSVG(kAppIconSvg, wxSize(256, 256));
+    if (!bundle.IsOk())
+        return icons;
+    for (int sz : {16, 24, 32, 48, 64, 128, 256}) {
+        wxIcon icon;
+        icon.CopyFromBitmap(bundle.GetBitmap(wxSize(sz, sz)));
+        if (icon.IsOk())
+            icons.AddIcon(icon);
+    }
+    return icons;
+}
 } // namespace
 
 // Virtual list control: text is supplied on demand so we can show thousands
@@ -76,6 +95,8 @@ wxEND_EVENT_TABLE()
 MainFrame::MainFrame(const wxString& initialPath)
     : wxFrame(nullptr, wxID_ANY, "Linux Audit Manager",
               wxDefaultPosition, wxSize(1100, 720)) {
+
+    SetIcons(appIcons());
 
     auto* notebook = new wxNotebook(this, wxID_ANY);
 

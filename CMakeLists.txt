@@ -47,6 +47,12 @@ add_executable(linuxauditmgr
 target_link_libraries(linuxauditmgr PRIVATE auditcore ${wxWidgets_LIBRARIES})
 target_compile_options(linuxauditmgr PRIVATE ${warning_flags})
 
+# Embed the SVG logo so the window/taskbar icon is available without an install
+# (single source of truth: the same linuxauditmgr.svg used for the app icon).
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/linuxauditmgr.svg" ICON_SVG)
+configure_file(src/icon_svg.h.in icon_svg.h @ONLY)
+target_include_directories(linuxauditmgr PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+
 # --- Installation -----------------------------------------------------------
 # GNUInstallDirs provides the standard, prefix-relative directories
 # (CMAKE_INSTALL_BINDIR, _DATADIR, _DOCDIR, …). The destinations honour
