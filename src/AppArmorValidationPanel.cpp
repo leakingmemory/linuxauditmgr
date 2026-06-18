@@ -332,13 +332,27 @@ void AppArmorValidationPanel::onNormalize(wxCommandEvent&) {
         return;
     }
 
-    wxMessageBox("Normalized " +
-                     wxString::FromUTF8(
-                         std::filesystem::path(row.file).filename().string()) +
-                     ".\nReload it into the kernel with `apparmor_parser -r` to "
-                     "apply (no semantic change).",
-                 "Normalization", wxOK | wxICON_INFORMATION, this);
+    wxString outcome =
+        "Normalized " +
+        wxString::FromUTF8(
+            std::filesystem::path(row.file).filename().string()) +
+        " (no semantic change).";
+    long icon = wxICON_INFORMATION;
+    // Reapply the profile into the kernel so the re-read picks up the on-disk
+    // change, just like the Denials/Allows edits do. Requires root; otherwise
+    // tell the user to reload it themselves.
+    if (apparmor::canReloadProfiles()) {
+        apparmor::ReloadResult rr = apparmor::reloadProfile(row.file);
+        outcome += "\n\n" + wxString::FromUTF8(rr.message);
+        if (!rr.ok)
+            icon = wxICON_WARNING; // written, but the kernel reload failed
+    } else {
+        outcome += "\n\nReload it into the kernel with `apparmor_parser -r` to "
+                   "apply.";
+    }
+    wxMessageBox(outcome, "Normalization", wxOK | icon, this);
 
+    // Re-read the profiles from disk so the in-memory view reflects the change.
     if (m_reloadProfiles)
         m_reloadProfiles();
     // Re-run validation so the list reflects the change.

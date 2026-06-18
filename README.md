@@ -183,7 +183,12 @@ the file. It aims to match the apparmor utils' formatting but is best-effort,
 which is why the diff is always shown first.
 
 Select a normalizable profile to see the exact **diff** in the detail pane, then
-**Normalize selected...** writes it (crash-safely). The file preamble, each
+**Normalize selected...** writes it (crash-safely). When the tool runs as
+**root** it then reapplies the profile into the kernel with `apparmor_parser -r`
+(reporting the parser's output if that fails), so the change takes effect
+immediately; as a normal user it tells you to reload it yourself. Either way the
+profiles are re-read from disk so the other sub-tabs reflect the change. The file
+preamble, each
 profile's header, its `include` statements (with `local/` overrides kept last)
 and any nested child profiles are preserved verbatim; only the rule lines are
 rewritten, so **comments inside a profile body are dropped** — which is why the
