@@ -106,7 +106,9 @@ install(FILES linuxauditmgr.svg
 install(FILES README.md
     DESTINATION "${CMAKE_INSTALL_DOCDIR}")
 
-# Tests (Catch2). Enable with -DBUILD_TESTING=ON (default when top-level).
+# Tests (Catch2) build by default. CTest provides the standard BUILD_TESTING
+# option (default ON); for a lean build with no Catch2 dependency and no test
+# binary, configure with -DBUILD_TESTING=OFF.
 include(CTest)
 if(BUILD_TESTING)
     find_package(Catch2 3 REQUIRED)

@@ -209,14 +209,18 @@ so `pkexec` must be given that same path.
 
 ## Tests
 
-The non-GUI core (parser + tailer) is covered by a Catch2 suite. Tests are
-built by default at top level; run them with CTest:
+The non-GUI core (parser + tailer + AppArmor logic) is covered by a Catch2
+suite. Tests build by default (the standard CTest `BUILD_TESTING` option); run
+them with CTest:
 
 ```sh
-cmake -S . -B build -DBUILD_TESTING=ON
+cmake -S . -B build
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
+
+For a lean build with no Catch2 dependency and no test binary, configure with
+`-DBUILD_TESTING=OFF`.
 
 Fixtures in `tests/fixtures.h` are **anonymized** fragments from a real
 enriched audit log (username, host paths, and kernel string scrubbed) that
