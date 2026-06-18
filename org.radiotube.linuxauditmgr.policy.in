@@ -8,7 +8,7 @@
   <action id="org.radiotube.linuxauditmgr.run">
     <description>Run Linux Audit Manager as administrator</description>
     <message>Authentication is required to run Linux Audit Manager with root privileges (to read, edit and reload AppArmor profiles)</message>
-    <icon_name>utilities-system-monitor</icon_name>
+    <icon_name>linuxauditmgr</icon_name>
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>

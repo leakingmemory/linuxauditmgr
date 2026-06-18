@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Linux Audit Manager">
+  <defs>
+    <linearGradient id="lam-shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5b6ae0"/>
+      <stop offset="1" stop-color="#2a2f73"/>
+    </linearGradient>
+  </defs>
+
+  <!-- shield body (AppArmor confinement) -->
+  <path d="M60 60 Q128 44 196 60 L196 130 Q196 180 128 216 Q60 180 60 130 Z"
+        fill="url(#lam-shield)" stroke="#1d2150" stroke-width="4" stroke-linejoin="round"/>
+  <!-- top-edge highlight for depth -->
+  <path d="M64 60 Q128 46 192 60" fill="none" stroke="#9aa6ff" stroke-width="3"
+        stroke-linecap="round" opacity="0.5"/>
+
+  <!-- audit-log lines; the amber one is a flagged event (a denial) -->
+  <g>
+    <!-- log prompt caret on the first line -->
+    <path d="M75 86 L82 92 L75 98" fill="none" stroke="#aeb8ff" stroke-width="4"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="92"  y="86.5" width="72" height="11" rx="5.5" fill="#e9ecff"/>
+    <rect x="84"  y="111"  width="58" height="11" rx="5.5" fill="#ffb020"/>
+    <rect x="84"  y="135.5" width="88" height="11" rx="5.5" fill="#e9ecff"/>
+    <rect x="84"  y="160"  width="64" height="11" rx="5.5" fill="#cfd6ff"/>
+  </g>
+</svg>

@@ -72,6 +72,11 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/linuxauditmgr.desktop"
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/org.radiotube.linuxauditmgr.policy"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/polkit-1/actions")
 
+# Scalable app icon (referenced as Icon=linuxauditmgr by the desktop entry and
+# the polkit action). The SVG covers every size on modern icon themes.
+install(FILES linuxauditmgr.svg
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps")
+
 install(FILES README.md
     DESTINATION "${CMAKE_INSTALL_DOCDIR}")
 
