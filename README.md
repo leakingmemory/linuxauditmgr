@@ -3,11 +3,25 @@
 A small **CMake + wxWidgets (C++26)** desktop tool for reading Linux audit
 (`auditd`) logs in a human-readable way, with live monitoring.
 
-The raw audit log is awkward to read: fields like `proctitle` are hex-encoded,
-identities are numeric (`uid=1000`), syscalls are numbers, and a single logical
-event is split across several `type=` lines. This tool parses and groups those
-records, decodes the encoded fields, and prefers the kernel's *enriched*
-resolved values (`SYSCALL=read`, `AUID="sigsegv"`, …) when present.
+## Why this exists
+
+This project started for two reasons:
+
+1. **The Linux audit log is hard to read.** The raw log is awkward: fields like
+   `proctitle` are hex-encoded, identities are numeric (`uid=1000`), syscalls
+   are numbers, and a single logical event is split across several `type=`
+   lines. This tool parses and groups those records, decodes the encoded
+   fields, and prefers the kernel's *enriched* resolved values (`SYSCALL=read`,
+   `AUID="sigsegv"`, …) when present.
+
+2. **Maintaining complex AppArmor profiles by log profiling is painful.** The
+   usual workflow is to run the Python `aa-` userspace tools (`aa-logprof` /
+   `aa-genprof`) against the audit log, but in practice a multitude of bugs and
+   rough edges in those tools makes that difficult and unreliable on large,
+   complex profiles. So the AppArmor tab grew up alongside the log viewer: it
+   correlates the audit log's `DENIED`/`ALLOWED` events directly with the
+   profiles, and lets you edit, validate and normalize profiles from the same
+   place — using the audit log you can already read clearly in the other tab.
 
 ## Features
 
