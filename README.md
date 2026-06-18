@@ -168,6 +168,21 @@ cmake --build build -j
 ./build/linuxauditmgr
 ```
 
+## Install
+
+Install rules follow the GNU conventions (via `GNUInstallDirs`) and honour
+`CMAKE_INSTALL_PREFIX` (default `/usr/local`) and `DESTDIR`:
+
+```sh
+cmake --install build                 # -> $prefix/bin, share/applications, …
+cmake --install build --prefix /usr   # override the prefix
+DESTDIR=/tmp/pkg cmake --install build --prefix /usr   # staged/packaged install
+```
+
+It installs the `linuxauditmgr` binary to `${CMAKE_INSTALL_BINDIR}`, a desktop
+entry to `${CMAKE_INSTALL_DATADIR}/applications`, and this README to
+`${CMAKE_INSTALL_DOCDIR}`.
+
 ## Tests
 
 The non-GUI core (parser + tailer) is covered by a Catch2 suite. Tests are

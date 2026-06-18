@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Linux Audit Manager
+GenericName=Audit Log & AppArmor Viewer
+Comment=Read Linux audit logs and manage AppArmor profiles
+Exec=linuxauditmgr
+Terminal=false
+Categories=System;Security;
+Icon=utilities-system-monitor
+Keywords=audit;auditd;apparmor;security;log;profile;

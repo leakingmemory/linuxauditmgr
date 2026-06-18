@@ -47,6 +47,22 @@ add_executable(linuxauditmgr
 target_link_libraries(linuxauditmgr PRIVATE auditcore ${wxWidgets_LIBRARIES})
 target_compile_options(linuxauditmgr PRIVATE ${warning_flags})
 
+# --- Installation -----------------------------------------------------------
+# GNUInstallDirs provides the standard, prefix-relative directories
+# (CMAKE_INSTALL_BINDIR, _DATADIR, _DOCDIR, …). The destinations honour
+# CMAKE_INSTALL_PREFIX (default /usr/local) and DESTDIR for staged/packaged
+# installs.
+include(GNUInstallDirs)
+
+install(TARGETS linuxauditmgr
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+
+install(FILES linuxauditmgr.desktop
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+
+install(FILES README.md
+    DESTINATION "${CMAKE_INSTALL_DOCDIR}")
+
 # Tests (Catch2). Enable with -DBUILD_TESTING=ON (default when top-level).
 include(CTest)
 if(BUILD_TESTING)
