@@ -366,7 +366,9 @@ bool AppArmorEventsPanel::finishEdit(const apparmor::EditResult& r,
 void AppArmorEventsPanel::applyReverse() {
     if (!selectionReversible())
         return;
-    const apparmor::DenialGroup& g = m_groups[m_selected];
+    // Copy by value: a modal dialog and finishEdit() below can rebuild
+    // m_groups, so we must not hold a reference into it across them.
+    const apparmor::DenialGroup g = m_groups[m_selected];
 
     const wxString dir = wxString::FromUTF8(m_profiles().directory);
     const wxString file = dir + "/" + wxString::FromUTF8(g.profileFile);
@@ -392,7 +394,9 @@ void AppArmorEventsPanel::applyReverse() {
 void AppArmorEventsPanel::applyDecision(apparmor::Decision decision) {
     if (m_selected < 0 || static_cast<std::size_t>(m_selected) >= m_groups.size())
         return;
-    const apparmor::DenialGroup& g = m_groups[m_selected];
+    // Copy by value: a modal dialog and finishEdit() below can rebuild
+    // m_groups, so we must not hold a reference into it across them.
+    const apparmor::DenialGroup g = m_groups[m_selected];
 
     auto rule = apparmor::buildRule(g.sample, decision);
     if (!rule) {
