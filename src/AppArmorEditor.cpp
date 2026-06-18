@@ -64,24 +64,7 @@ std::string maybeQuote(const std::string& s) {
 std::string peerToken(const std::string& peer) {
     if (peer.empty() || peer == "unconfined")
         return peer;
-    std::string out;
-    bool needQuote = false;
-    for (char c : peer) {
-        switch (c) {
-        case '*': case '?': case '[': case ']':
-        case '{': case '}': case '^': case '\\': case '"':
-            out += '\\';
-            out += c;
-            break;
-        case ' ': case '\t':
-            needQuote = true;
-            out += c;
-            break;
-        default:
-            out += c;
-        }
-    }
-    return needQuote ? '"' + out + '"' : out;
+    return escapePeerLabel(peer);
 }
 
 RuleKind kindForDenial(const Denial& d) {

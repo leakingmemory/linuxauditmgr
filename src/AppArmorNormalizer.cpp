@@ -10,10 +10,52 @@
 namespace apparmor {
 namespace {
 
+// Strip one layer of surrounding quotes and all backslash escapes from a peer=
+// value, yielding the literal profile name it refers to.
+std::string unescapePeerValue(std::string v) {
+    if (v.size() >= 2 && v.front() == '"' && v.back() == '"')
+        v = v.substr(1, v.size() - 2);
+    std::string out;
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        if (v[i] == '\\' && i + 1 < v.size())
+            out += v[++i];
+        else
+            out += v[i];
+    }
+    return out;
+}
+
+// If a ptrace/signal rule's peer= label names a real loaded profile but is
+// written with unescaped glob metacharacters (so the kernel will not match it),
+// rewrite the peer to the escaped form that matches. Profiles whose names use
+// @{...} variable expansions are left alone (escaping would break the variable).
+std::string canonicalizePeer(const std::string& raw,
+                             const std::set<std::string>& known) {
+    const std::string key = "peer=";
+    const auto pos = raw.find(key);
+    if (pos == std::string::npos)
+        return raw;
+    const std::size_t vstart = pos + key.size();
+    const std::string value = raw.substr(vstart); // peer is the last token
+    if (value.empty() || value == "unconfined" ||
+        value.find("@{") != std::string::npos)
+        return raw;
+
+    const std::string literal = unescapePeerValue(value);
+    if (!known.count(literal))
+        return raw; // not a known profile name: leave intentional globs alone
+
+    const std::string fixed = escapePeerLabel(literal);
+    if (fixed == value)
+        return raw; // already canonical
+    return raw.substr(0, vstart) + fixed;
+}
+
 // Produce the normalized rule lines (each terminated with a comma) for one
 // profile: simple file rules for the same path/qualifiers merged, exact
 // duplicates removed, everything sorted by (kind, target).
-std::vector<std::string> normalizedRuleLines(const Profile& p) {
+std::vector<std::string> normalizedRuleLines(
+    const Profile& p, const std::set<std::string>& known) {
     struct Entry {
         int         ord;
         int         dec;  // deny (0) sorts before allow (1), like aa-tools
@@ -68,10 +110,16 @@ std::vector<std::string> normalizedRuleLines(const Profile& p) {
 
     std::set<std::string> seen;
     for (const Rule* r : verbatim) {
-        if (!seen.insert(r->raw).second)
+        // Repair a ptrace/signal peer that won't match because its glob
+        // metacharacters were not escaped; this also makes otherwise-distinct
+        // dead duplicates collapse below.
+        std::string raw = r->raw;
+        if (r->kind == RuleKind::Ptrace || r->kind == RuleKind::Signal)
+            raw = canonicalizePeer(raw, known);
+        if (!seen.insert(raw).second)
             continue; // exact duplicate
         entries.push_back(
-            {ruleKindOrder(r->kind), decRank(r->decision), r->raw + ','});
+            {ruleKindOrder(r->kind), decRank(r->decision), raw + ','});
     }
 
     // Sort like aa-tools' get_clean(): by kind, deny before allow, then by the
@@ -104,7 +152,8 @@ std::vector<std::string> normalizedRuleLines(const Profile& p) {
 // Regenerate a profile block: header verbatim, then includes (verbatim, in
 // order), then normalized rules, then nested children (recursively). Returns the
 // block text ending with the closing '}', with no trailing newline.
-std::string renderProfile(const Profile& p, const std::string& text, int lvl) {
+std::string renderProfile(const Profile& p, const std::string& text, int lvl,
+                          const std::set<std::string>& known) {
     const std::string pad(static_cast<std::size_t>(lvl) * 2, ' ');
     const std::string cpad(static_cast<std::size_t>(lvl + 1) * 2, ' ');
 
@@ -125,14 +174,14 @@ std::string renderProfile(const Profile& p, const std::string& text, int lvl) {
 
     for (const auto* inc : topIncludes)
         emit(*inc);
-    const auto rules = normalizedRuleLines(p);
+    const auto rules = normalizedRuleLines(p, known);
     if (!topIncludes.empty() && !rules.empty())
         emit(""); // blank line between the include block and the rules
     for (const auto& rule : rules)
         emit(rule);
     for (const auto& child : p.children) {
         emit("");
-        out += renderProfile(child, text, lvl + 1);
+        out += renderProfile(child, text, lvl + 1, known);
     }
     for (const auto* inc : localIncludes) {
         emit("");
@@ -231,7 +280,8 @@ std::string lineDiff(const std::string& aText, const std::string& bText) {
 
 } // namespace
 
-NormalizationResult normalizeProfileText(const std::string& fileText) {
+NormalizationResult normalizeProfileText(
+    const std::string& fileText, const std::set<std::string>& knownProfileNames) {
     NormalizationResult res;
     res.normalized = fileText;
 
@@ -247,7 +297,7 @@ NormalizationResult normalizeProfileText(const std::string& fileText) {
             p.bodyEndOffset >= fileText.size())
             return res; // unexpected offsets; refuse to rewrite
         out += fileText.substr(cursor, p.headerStartOffset - cursor);
-        out += renderProfile(p, fileText, 0);
+        out += renderProfile(p, fileText, 0, knownProfileNames);
         cursor = p.bodyEndOffset + 1;
     }
     out += fileText.substr(std::min(cursor, fileText.size()));

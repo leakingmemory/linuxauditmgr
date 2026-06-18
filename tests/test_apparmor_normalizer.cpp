@@ -1,5 +1,7 @@
 #include <catch2/catch_all.hpp>
 
+#include <set>
+
 #include "AppArmorNormalizer.h"
 #include "AppArmorParser.h"
 
@@ -211,6 +213,50 @@ TEST_CASE("blank lines separate groups (kind / deny->allow)") {
     auto res = normalizeProfileText(input);
     // capability, blank, deny block, blank, allow block.
     CHECK(res.normalized.find("\n\n") != std::string::npos);
+}
+
+TEST_CASE("normalization repairs unescaped peer labels that name a real profile") {
+    // Three dead readby-rustrover rules (two quoted, one bare) - all unescaped,
+    // so the kernel won't match them - plus a working escaped read rule.
+    const std::string input =
+        "profile jspawn /home/*/app/jspawnhelper {\n"
+        "  ptrace (readby) peer=\"/home/*/app/rustrover\",\n"
+        "  ptrace readby peer=/home/*/app/rustrover,\n"
+        "  ptrace (readby) peer=\"/home/*/app/rustrover\",\n"
+        "  ptrace read peer=/home/\\*/app/rustrover,\n"
+        "}\n";
+
+    // rustrover is a real loaded profile, so its peers should be repaired.
+    std::set<std::string> known = {"/home/*/app/rustrover"};
+    auto res = normalizeProfileText(input, known);
+    REQUIRE(res.changed);
+
+    // Every readby/read peer is now escaped, and the exact duplicates collapsed.
+    auto profs = parseText(res.normalized);
+    REQUIRE(profs.size() == 1);
+    int readby = 0;
+    for (const auto& r : profs[0].rules) {
+        CHECK(r.raw.find("peer=/home/*/") == std::string::npos); // none unescaped
+        if (r.raw.find("readby") != std::string::npos) {
+            ++readby;
+            CHECK(r.raw.find("peer=/home/\\*/app/rustrover") != std::string::npos);
+        }
+    }
+    // The two identical quoted rules collapsed; the bare one differs in syntax,
+    // so two distinct (now-escaped) readby rules remain.
+    CHECK(readby == 2);
+}
+
+TEST_CASE("normalization leaves a peer glob alone when no profile has that name") {
+    // No loaded profile named /home/*/app/other, so the '*' may be an intended
+    // wildcard: do not touch it.
+    const std::string input =
+        "profile p /usr/bin/p {\n"
+        "  ptrace (read) peer=/home/*/app/other,\n"
+        "}\n";
+    std::set<std::string> known = {"/usr/bin/p"};
+    auto res = normalizeProfileText(input, known);
+    CHECK(res.normalized.find("peer=/home/*/app/other") != std::string::npos);
 }
 
 TEST_CASE("a profile with no parseable content is returned unchanged") {

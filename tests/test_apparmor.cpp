@@ -153,3 +153,10 @@ TEST_CASE("describePerms expands permission letters") {
     CHECK(describePerms("mixr") == "mmap-exec, inherit-exec, read");
     CHECK(describePerms("") == "");
 }
+
+TEST_CASE("escapePeerLabel escapes AARE metacharacters, quotes only for space") {
+    CHECK(escapePeerLabel("/home/*/app/x") == R"(/home/\*/app/x)");
+    CHECK(escapePeerLabel("/usr/bin/x") == "/usr/bin/x"); // nothing to escape
+    CHECK(escapePeerLabel("/a/b?[c]{d}") == R"(/a/b\?\[c\]\{d\})");
+    CHECK(escapePeerLabel("/has space/x") == "\"/has space/x\""); // quoted
+}

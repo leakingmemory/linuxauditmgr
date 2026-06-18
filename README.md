@@ -167,7 +167,15 @@ form (status **needs normalization**). Normalizing a profile:
   lines between groups;
 - merges plain file rules for the same path (combining their permissions) —
   exec-transition rules and quoted paths are kept verbatim rather than rebuilt,
-  so a path is never re-quoted or re-escaped; and
+  so a path is never re-quoted or re-escaped;
+- **repairs a `ptrace`/`signal` `peer=` label that won't match** because its glob
+  metacharacters were left unescaped (e.g. `peer=/home/*/app` where the peer is a
+  real profile literally named `/home/*/app`): a peer is matched *literally*, not
+  as a glob, so the unescaped form is a dead rule the kernel silently ignores.
+  When the peer's literal form names a loaded profile, it is rewritten to the
+  escaped, matching form (`peer=/home/\*/app`) — which also makes the now-
+  identical dead duplicates collapse. Peers that don't name a loaded profile (a
+  possibly-intentional wildcard) and `@{...}` variable peers are left alone; and
 - removes exact-duplicate rules.
 
 The normalized output is re-checked with `apparmor_parser` before it replaces

@@ -368,6 +368,27 @@ std::string normalizeFilePerms(const std::string& mask) {
     return out;
 }
 
+std::string escapePeerLabel(const std::string& profileName) {
+    std::string out;
+    bool needQuote = false;
+    for (char c : profileName) {
+        switch (c) {
+        case '*': case '?': case '[': case ']':
+        case '{': case '}': case '^': case '\\': case '"':
+            out += '\\';
+            out += c;
+            break;
+        case ' ': case '\t':
+            needQuote = true;
+            out += c;
+            break;
+        default:
+            out += c;
+        }
+    }
+    return needQuote ? '"' + out + '"' : out;
+}
+
 bool Profile::complain() const {
     return std::find(flags.begin(), flags.end(), "complain") != flags.end();
 }

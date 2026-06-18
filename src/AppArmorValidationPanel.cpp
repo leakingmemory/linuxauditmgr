@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <sstream>
 
 #include <wx/msgdlg.h>
@@ -10,6 +11,7 @@
 
 #include "AppArmorEditor.h"
 #include "AppArmorNormalizer.h"
+#include "AppArmorParser.h"
 #include "AppArmorValidator.h"
 
 namespace {
@@ -34,6 +36,20 @@ std::string readFile(const std::string& path) {
     std::ostringstream ss;
     ss << in.rdbuf();
     return ss.str();
+}
+
+// Collect every loaded profile's name and attachment (children too), so the
+// normalizer can recognise a peer= label that refers to a real profile and
+// repair it if its glob metacharacters were left unescaped.
+void collectProfileNames(const std::vector<apparmor::Profile>& profiles,
+                         std::set<std::string>& out) {
+    for (const auto& p : profiles) {
+        if (!p.name.empty())
+            out.insert(p.name);
+        if (!p.attachment.empty())
+            out.insert(p.attachment);
+        collectProfileNames(p.children, out);
+    }
 }
 } // namespace
 
@@ -149,11 +165,17 @@ void AppArmorValidationPanel::startValidation() {
     m_cancel = false;
     m_total = files.size();
 
+    // Snapshot the loaded profile names on the UI thread; the worker uses them
+    // to recognise (and repair) peer= labels that refer to a real profile.
+    std::set<std::string> knownNames;
+    collectProfileNames(m_profiles().profiles, knownNames);
+
     m_validateBtn->Enable(false);
     m_normalizeBtn->Enable(false);
     m_summary->SetLabel(wxString::Format("Validating 0/%zu ...", m_total));
 
-    m_worker = std::thread([this, files = std::move(files)] {
+    m_worker = std::thread([this, files = std::move(files),
+                            knownNames = std::move(knownNames)] {
         for (const auto& file : files) {
             if (m_cancel)
                 break;
@@ -164,7 +186,8 @@ void AppArmorValidationPanel::startValidation() {
                 row.kind = Row::Kind::Error;
                 row.detail = v.output;
             } else {
-                auto n = apparmor::normalizeProfileText(readFile(file));
+                auto n = apparmor::normalizeProfileText(readFile(file),
+                                                        knownNames);
                 if (!n.changed) {
                     ++m_done;
                     continue; // clean and canonical: nothing to report

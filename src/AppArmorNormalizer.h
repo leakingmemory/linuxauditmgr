@@ -1,5 +1,6 @@
 #pragma once
 
+#include <set>
 #include <string>
 
 // Normalizes an AppArmor profile file to a canonical form: rule statements
@@ -21,6 +22,15 @@ struct NormalizationResult {
     std::string diff;             // unified-style line diff (original -> normalized)
 };
 
-NormalizationResult normalizeProfileText(const std::string& fileText);
+// `knownProfileNames`, when provided, are the names (and attachments) of all
+// loaded profiles. A ptrace/signal `peer=` label is a profile name matched
+// literally; if one is written with unescaped glob metacharacters (e.g.
+// peer=/home/*/app) but its literal form names a real loaded profile, the rule
+// is dead - the kernel will not match it. Normalization then repairs it to the
+// escaped form (peer=/home/\*/app) that matches, collapsing the duplicates this
+// creates. With no set provided, peers are left untouched.
+NormalizationResult normalizeProfileText(
+    const std::string& fileText,
+    const std::set<std::string>& knownProfileNames = {});
 
 } // namespace apparmor

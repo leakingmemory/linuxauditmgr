@@ -46,6 +46,12 @@ std::string describePerms(const std::string& perms);
 // 'w'; unknown letters are dropped; 'w' subsumes 'a'.
 std::string normalizeFilePerms(const std::string& mask);
 
+// Render a profile NAME as a peer= label that matches it literally: backslash-
+// escape AARE metacharacters (* ? [ ] { } ^ \ ") and quote only when the name
+// contains whitespace. A peer is matched literally, not as a glob, so a literal
+// '*' in a profile name must be escaped or the rule will not match.
+std::string escapePeerLabel(const std::string& profileName);
+
 struct Rule {
     Decision    decision = Decision::Allow;
     bool        audit    = false;  // rule was prefixed with "audit"
