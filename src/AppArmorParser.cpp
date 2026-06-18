@@ -63,14 +63,28 @@ std::vector<std::string> splitWhitespace(const std::string& s) {
 std::string stripComments(const std::string& text) {
     std::string out = text;
     bool inComment = false;
+    bool inQuote = false;
     for (std::size_t i = 0; i < out.size(); ++i) {
         char c = out[i];
         if (c == '\n') {
             inComment = false;
+            inQuote = false;
             continue;
         }
         if (inComment) {
             out[i] = ' ';
+            continue;
+        }
+        if (inQuote) {
+            // A '#' inside a quoted path is not a comment.
+            if (c == '\\' && i + 1 < out.size())
+                ++i; // skip the escaped char (so \" does not close the quote)
+            else if (c == '"')
+                inQuote = false;
+            continue;
+        }
+        if (c == '"') {
+            inQuote = true;
             continue;
         }
         if (c == '#') {
@@ -376,6 +390,9 @@ std::vector<Profile> parseText(const std::string& text,
     // commas *inside* a token. Track that depth so those characters are not
     // mistaken for profile blocks or rule terminators.
     int globDepth = 0;
+    // A quoted path ("/home/*/a, b.png") can contain commas, braces and '#'.
+    // While inside quotes, accumulate everything verbatim.
+    bool inQuote = false;
 
     auto closeProfile = [&] {
         if (stack.empty())
@@ -390,6 +407,19 @@ std::vector<Profile> parseText(const std::string& text,
 
     for (std::size_t i = 0; i < clean.size(); ++i) {
         const char c = clean[i];
+        if (inQuote) {
+            if (c == '\\' && i + 1 < clean.size()) {
+                buf.push_back(c);
+                buf.push_back(clean[++i]); // keep the escaped char verbatim
+                continue;
+            }
+            buf.push_back(c);
+            if (c == '"')
+                inQuote = false;
+            else if (c == '\n')
+                ++line; // defensive; a quote should not span lines
+            continue;
+        }
         if (c == '\n') {
             const std::string t = trim(buf);
             if (globDepth == 0 &&
@@ -454,6 +484,8 @@ std::vector<Profile> parseText(const std::string& text,
             bufStartOffset = i;
         }
         buf.push_back(c);
+        if (c == '"')
+            inQuote = true; // subsequent chars are part of the quoted token
     }
 
     // Unbalanced braces: salvage whatever is still open.

@@ -150,6 +150,30 @@ TEST_CASE("quoted paths with spaces are preserved verbatim, not corrupted") {
     CHECK(profs[0].rules.size() == 2);
 }
 
+TEST_CASE("a quoted path containing a comma/# is one rule, not split") {
+    // The comma and '#' are inside the quotes; they must not terminate the rule
+    // or start a comment.
+    const std::string input =
+        "profile p {\n"
+        "  owner \"/home/*/Downloads/a, b #c.png\" r,\n"
+        "  /etc/a r,\n"
+        "}\n";
+
+    auto profs = parseText(input);
+    REQUIRE(profs.size() == 1);
+    REQUIRE(profs[0].rules.size() == 2); // not split into 3+ bogus rules
+    bool found = false;
+    for (const auto& r : profs[0].rules)
+        if (r.target == "\"/home/*/Downloads/a, b #c.png\"")
+            found = true;
+    CHECK(found);
+
+    // Normalization keeps the quoted rule byte-for-byte.
+    auto res = normalizeProfileText(input);
+    CHECK(res.normalized.find("owner \"/home/*/Downloads/a, b #c.png\" r,") !=
+          std::string::npos);
+}
+
 TEST_CASE("blank lines separate groups (kind / deny->allow)") {
     const std::string input =
         "profile p {\n"
