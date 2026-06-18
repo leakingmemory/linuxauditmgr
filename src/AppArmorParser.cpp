@@ -242,22 +242,44 @@ bool skipName(const std::string& name) {
 
 } // namespace
 
+namespace {
+// Single source of truth for per-RuleKind metadata: the human-readable display
+// name and the canonical sort order used when normalizing a profile body. Add a
+// new RuleKind once here and both ruleKindName() and ruleKindOrder() pick it up.
+// (The order this table is written in is also the canonical sort order.)
+struct RuleKindMeta {
+    RuleKind    kind;
+    const char* name;
+    int         order;
+};
+constexpr RuleKindMeta kRuleKindMeta[] = {
+    {RuleKind::Capability,    "Capabilities",    0},
+    {RuleKind::Network,       "Network",         1},
+    {RuleKind::Mount,         "Mount",           2},
+    {RuleKind::Signal,        "Signal",          3},
+    {RuleKind::Ptrace,        "Ptrace",          4},
+    {RuleKind::Unix,          "Unix sockets",    5},
+    {RuleKind::Dbus,          "D-Bus",           6},
+    {RuleKind::ChangeProfile, "Change profile",  7},
+    {RuleKind::Rlimit,        "Resource limits", 8},
+    {RuleKind::File,          "Files",           9},
+    {RuleKind::Link,          "Link",           10},
+    {RuleKind::Other,         "Other",           11},
+};
+const RuleKindMeta& ruleKindMeta(RuleKind k) {
+    for (const auto& m : kRuleKindMeta)
+        if (m.kind == k)
+            return m;
+    return kRuleKindMeta[std::size(kRuleKindMeta) - 1]; // Other
+}
+} // namespace
+
 const char* ruleKindName(RuleKind kind) {
-    switch (kind) {
-    case RuleKind::File:          return "Files";
-    case RuleKind::Capability:    return "Capabilities";
-    case RuleKind::Network:       return "Network";
-    case RuleKind::Signal:        return "Signal";
-    case RuleKind::Ptrace:        return "Ptrace";
-    case RuleKind::Dbus:          return "D-Bus";
-    case RuleKind::Unix:          return "Unix sockets";
-    case RuleKind::Mount:         return "Mount";
-    case RuleKind::ChangeProfile: return "Change profile";
-    case RuleKind::Link:          return "Link";
-    case RuleKind::Rlimit:        return "Resource limits";
-    case RuleKind::Other:         return "Other";
-    }
-    return "Other";
+    return ruleKindMeta(kind).name;
+}
+
+int ruleKindOrder(RuleKind kind) {
+    return ruleKindMeta(kind).order;
 }
 
 std::string describePerms(const std::string& perms) {

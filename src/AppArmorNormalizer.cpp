@@ -10,25 +10,6 @@
 namespace apparmor {
 namespace {
 
-// Canonical ordering of rule kinds within a profile body.
-int kindOrder(RuleKind k) {
-    switch (k) {
-    case RuleKind::Capability:    return 0;
-    case RuleKind::Network:       return 1;
-    case RuleKind::Mount:         return 2;
-    case RuleKind::Signal:        return 3;
-    case RuleKind::Ptrace:        return 4;
-    case RuleKind::Unix:          return 5;
-    case RuleKind::Dbus:          return 6;
-    case RuleKind::ChangeProfile: return 7;
-    case RuleKind::Rlimit:        return 8;
-    case RuleKind::File:          return 9;
-    case RuleKind::Link:          return 10;
-    case RuleKind::Other:         return 11;
-    }
-    return 11;
-}
-
 // Produce the normalized rule lines (each terminated with a comma) for one
 // profile: simple file rules for the same path/qualifiers merged, exact
 // duplicates removed, everything sorted by (kind, target).
@@ -82,7 +63,7 @@ std::vector<std::string> normalizedRuleLines(const Profile& p) {
         if (r.owner)
             text += "owner ";
         text += r.target + ' ' + normalizeFilePerms(val.first) + ',';
-        entries.push_back({kindOrder(RuleKind::File), decRank(r.decision), text});
+        entries.push_back({ruleKindOrder(RuleKind::File), decRank(r.decision), text});
     }
 
     std::set<std::string> seen;
@@ -90,7 +71,7 @@ std::vector<std::string> normalizedRuleLines(const Profile& p) {
         if (!seen.insert(r->raw).second)
             continue; // exact duplicate
         entries.push_back(
-            {kindOrder(r->kind), decRank(r->decision), r->raw + ','});
+            {ruleKindOrder(r->kind), decRank(r->decision), r->raw + ','});
     }
 
     // Sort like aa-tools' get_clean(): by kind, deny before allow, then by the

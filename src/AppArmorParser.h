@@ -32,6 +32,10 @@ enum class RuleKind {
 
 const char* ruleKindName(RuleKind kind);
 
+// Canonical sort rank of a rule kind within a profile body (used when
+// normalizing). Shares its source of truth with ruleKindName().
+int ruleKindOrder(RuleKind kind);
+
 // Expand a file permission string (e.g. "rwmix") into a human description
 // ("read, write, mmap, inherit-exec"). Returns an empty string if perms empty.
 std::string describePerms(const std::string& perms);
