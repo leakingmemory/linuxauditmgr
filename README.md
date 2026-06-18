@@ -168,6 +168,11 @@ cmake --build build -j
 ./build/linuxauditmgr
 ```
 
+The heavy `std` / wxWidgets / Catch2 headers are precompiled once per target
+(via `target_precompile_headers`) so they are not re-parsed in every translation
+unit — a noticeable build-time saving, most of it on the wx-heavy GUI files.
+Disable with `-DLINUXAUDITMGR_ENABLE_PCH=OFF` if your toolchain dislikes it.
+
 ## Install
 
 Install rules follow the GNU conventions (via `GNUInstallDirs`) and honour

@@ -4,6 +4,8 @@ audit.log*
 
 # Build output
 /build/
+/build-*/
+gcm.cache/
 /cmake-build-*/
 
 # Editor / IDE

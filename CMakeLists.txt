@@ -16,6 +16,12 @@ endif()
 # Export compile_commands.json for clangd / IDE tooling.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Precompile the heavy std / wx / Catch2 headers once per target instead of
+# re-parsing them in every TU. This is the robust, GCC-supported "precompiled
+# header bundle" (the module/`import std` route is blocked on this toolchain).
+option(LINUXAUDITMGR_ENABLE_PCH
+       "Precompile heavy std/wx/Catch2 headers to speed up builds" ON)
+
 find_package(wxWidgets REQUIRED COMPONENTS core base)
 include(${wxWidgets_USE_FILE})
 
@@ -36,6 +42,13 @@ target_compile_options(auditcore PRIVATE ${warning_flags})
 find_package(Threads REQUIRED)
 target_link_libraries(auditcore PUBLIC Threads::Threads)
 
+if(LINUXAUDITMGR_ENABLE_PCH)
+    target_precompile_headers(auditcore PRIVATE
+        <algorithm> <array> <cctype> <cstdint> <filesystem> <fstream>
+        <functional> <map> <memory> <optional> <set> <sstream> <string>
+        <string_view> <vector>)
+endif()
+
 add_executable(linuxauditmgr
     src/App.cpp
     src/MainFrame.cpp
@@ -52,6 +65,13 @@ target_compile_options(linuxauditmgr PRIVATE ${warning_flags})
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/linuxauditmgr.svg" ICON_SVG)
 configure_file(src/icon_svg.h.in icon_svg.h @ONLY)
 target_include_directories(linuxauditmgr PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+
+if(LINUXAUDITMGR_ENABLE_PCH)
+    target_precompile_headers(linuxauditmgr PRIVATE
+        <wx/wx.h> <wx/bmpbndl.h> <wx/dirdlg.h> <wx/filedlg.h> <wx/iconbndl.h>
+        <wx/listctrl.h> <wx/menu.h> <wx/msgdlg.h> <wx/notebook.h>
+        <wx/splitter.h> <wx/textdlg.h>)
+endif()
 
 # --- Installation -----------------------------------------------------------
 # GNUInstallDirs provides the standard, prefix-relative directories
@@ -101,6 +121,12 @@ if(BUILD_TESTING)
     )
     target_link_libraries(auditmgr_tests PRIVATE auditcore Catch2::Catch2WithMain)
     target_compile_options(auditmgr_tests PRIVATE ${warning_flags})
+
+    if(LINUXAUDITMGR_ENABLE_PCH)
+        target_precompile_headers(auditmgr_tests PRIVATE
+            <catch2/catch_all.hpp> <filesystem> <fstream> <sstream> <string>
+            <vector>)
+    endif()
 
     include(Catch)
     catch_discover_tests(auditmgr_tests)
