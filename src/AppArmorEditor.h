@@ -19,6 +19,16 @@ namespace apparmor {
 // do not know how to express (the caller should not offer the action then).
 std::optional<std::string> buildRule(const Denial& denial, Decision decision);
 
+// Add (owner=true) or remove (owner=false) the `owner` qualifier on a rule,
+// preserving AppArmor's qualifier order ([audit] [deny|allow] owner <body>).
+// Idempotent and safe on rules that already do (not) carry it; lets the UI flip
+// an owner-conditional rule to apply to any user, or vice versa.
+std::string setOwnerQualifier(const std::string& ruleText, bool owner);
+
+// True if `rule` is a file rule - the only kind the `owner` qualifier applies
+// to - so the UI knows whether to offer an owner/any toggle.
+bool ruleSupportsOwner(const std::string& ruleText);
+
 struct EditResult {
     bool        ok = false;
     std::string message;   // human-readable success or error description

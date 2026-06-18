@@ -58,6 +58,53 @@ wxString formatTime(double epoch) {
     std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm);
     return wxString::FromUTF8(buf);
 }
+
+// Confirmation dialog for adding a rule: an editable rule field plus, for file
+// rules, an "Owner only" checkbox that flips the `owner` qualifier in place so
+// the user can choose between matching only their own files and any user's.
+class RuleEditDialog : public wxDialog {
+public:
+    RuleEditDialog(wxWindow* parent, const wxString& prompt,
+                   const wxString& rule, bool showOwner, bool ownerInitial)
+        : wxDialog(parent, wxID_ANY, "Confirm AppArmor edit", wxDefaultPosition,
+                   wxSize(720, -1)) {
+        auto* sizer = new wxBoxSizer(wxVERTICAL);
+        sizer->Add(new wxStaticText(this, wxID_ANY, prompt), 0,
+                   wxALL | wxEXPAND, 12);
+
+        m_text = new wxTextCtrl(this, wxID_ANY, rule);
+        sizer->Add(m_text, 0, wxLEFT | wxRIGHT | wxEXPAND, 12);
+
+        if (showOwner) {
+            m_owner = new wxCheckBox(
+                this, wxID_ANY,
+                "Owner only - match only when the file is owned by the user "
+                "running the program (otherwise it applies to any user)");
+            m_owner->SetValue(ownerInitial);
+            m_owner->Bind(wxEVT_CHECKBOX, &RuleEditDialog::onOwnerToggled, this);
+            sizer->Add(m_owner, 0, wxALL, 12);
+        }
+
+        if (auto* btns = CreateButtonSizer(wxOK | wxCANCEL))
+            sizer->Add(btns, 0, wxALL | wxEXPAND, 12);
+
+        SetSizerAndFit(sizer);
+        CentreOnParent();
+        m_text->SetInsertionPointEnd();
+        m_text->SetFocus();
+    }
+
+    wxString rule() const { return m_text->GetValue(); }
+
+private:
+    void onOwnerToggled(wxCommandEvent&) {
+        m_text->ChangeValue(wxString::FromUTF8(apparmor::setOwnerQualifier(
+            m_text->GetValue().ToStdString(), m_owner->GetValue())));
+    }
+
+    wxTextCtrl* m_text  = nullptr;
+    wxCheckBox* m_owner = nullptr;
+};
 } // namespace
 
 class AppArmorEventsPanel::DenialList : public wxListCtrl {
@@ -412,24 +459,20 @@ void AppArmorEventsPanel::applyDecision(apparmor::Decision decision) {
 
     // Let the user edit the rule before it is written. This matters most for
     // path rules, where you usually want to widen the exact denied path into a
-    // glob (e.g. /home/*/.cache/** rather than one specific file).
+    // glob (e.g. /home/*/.cache/** rather than one specific file), and to pick
+    // owner-only versus any-user via the checkbox.
     wxString prompt = verb + " this access by adding a rule to the profile.\n"
                              "Edit it if you want (e.g. widen a path with "
                              "* or ** globs):\n\n";
     prompt += "Profile: " + wxString::FromUTF8(g.sample.profile) + "\n";
     prompt += "File:    " + file;
 
-    wxTextEntryDialog dlg(this, prompt, "Confirm AppArmor edit",
-                          wxString::FromUTF8(*rule));
-    if (wxSize sz = dlg.GetSize(); sz.GetWidth() < 600) {
-        sz.SetWidth(720);
-        dlg.SetSize(sz);
-        dlg.CentreOnParent();
-    }
+    RuleEditDialog dlg(this, prompt, wxString::FromUTF8(*rule),
+                       apparmor::ruleSupportsOwner(*rule), g.sample.owner);
     if (dlg.ShowModal() != wxID_OK)
         return;
 
-    const std::string finalRule = normalizeRule(dlg.GetValue().ToStdString());
+    const std::string finalRule = normalizeRule(dlg.rule().ToStdString());
     if (finalRule.empty()) {
         wxMessageBox("The rule is empty; nothing was written.", "AppArmor edit",
                      wxOK | wxICON_INFORMATION, this);

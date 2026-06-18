@@ -79,6 +79,31 @@ TEST_CASE("buildRule emits an owner rule when the access is owner-conditional") 
     CHECK(*buildRule(d, Decision::Allow) == "/home/sigsegv/.config/x rw,");
 }
 
+TEST_CASE("setOwnerQualifier adds/removes owner, preserving qualifier order") {
+    // Add owner.
+    CHECK(setOwnerQualifier("/home/u/x rw,", true) == "owner /home/u/x rw,");
+    CHECK(setOwnerQualifier("deny /home/u/x rw,", true) ==
+          "deny owner /home/u/x rw,");
+    CHECK(setOwnerQualifier("audit deny /x r,", true) ==
+          "audit deny owner /x r,");
+    // Remove owner.
+    CHECK(setOwnerQualifier("owner /home/u/x rw,", false) == "/home/u/x rw,");
+    CHECK(setOwnerQualifier("deny owner /x r,", false) == "deny /x r,");
+    // Idempotent: adding when present / removing when absent is a no-op.
+    CHECK(setOwnerQualifier("owner /x r,", true) == "owner /x r,");
+    CHECK(setOwnerQualifier("/x r,", false) == "/x r,");
+    // The path/perms (the body) are left untouched, including embedded spaces.
+    CHECK(setOwnerQualifier("\"/home/u/a b\" rw,", true) ==
+          "owner \"/home/u/a b\" rw,");
+}
+
+TEST_CASE("ruleSupportsOwner is true only for file rules") {
+    CHECK(ruleSupportsOwner("/etc/x r,"));
+    CHECK(ruleSupportsOwner("owner /home/u/x rw,"));
+    CHECK_FALSE(ruleSupportsOwner("signal (receive) peer=unconfined,"));
+    CHECK_FALSE(ruleSupportsOwner("capability net_raw,"));
+}
+
 TEST_CASE("buildRule maps audit-mask create/delete letters to valid perms") {
     // 'c' (create) and 'd' (delete) are not rule permissions; they map to 'w'.
     CHECK(*buildRule(fileDenial("p", "/dev/shm/R*", "c"), Decision::Allow) ==

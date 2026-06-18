@@ -261,6 +261,51 @@ std::optional<std::string> buildRule(const Denial& d, Decision decision) {
     }
 }
 
+std::string setOwnerQualifier(const std::string& ruleText, bool owner) {
+    const std::size_t n = ruleText.size();
+    auto isws = [](char c) { return std::isspace(static_cast<unsigned char>(c)) != 0; };
+
+    std::size_t scan = 0;
+    while (scan < n && isws(ruleText[scan]))
+        ++scan;
+    const std::string indent = ruleText.substr(0, scan);
+
+    // Walk the leading qualifiers, keeping audit/deny/allow in their original
+    // order and dropping any existing owner (we re-add it from `owner`). The
+    // body is whatever follows the qualifiers.
+    std::vector<std::string> quals;
+    std::size_t i = scan;
+    std::size_t bodyStart = scan;
+    while (i < n) {
+        const std::size_t tokStart = i;
+        while (i < n && !isws(ruleText[i]))
+            ++i;
+        const std::string tok = ruleText.substr(tokStart, i - tokStart);
+        if (tok == "audit" || tok == "deny" || tok == "allow") {
+            quals.push_back(tok);
+        } else if (tok != "owner") {
+            bodyStart = tokStart; // first non-qualifier token: the rule body
+            break;
+        }
+        while (i < n && isws(ruleText[i]))
+            ++i;
+        bodyStart = i;
+    }
+
+    std::string out = indent;
+    for (const auto& q : quals)
+        out += q + ' ';
+    if (owner)
+        out += "owner ";
+    out += ruleText.substr(bodyStart);
+    return out;
+}
+
+bool ruleSupportsOwner(const std::string& ruleText) {
+    auto r = parseSingleRule(ruleText);
+    return r && r->kind == RuleKind::File;
+}
+
 EditResult addRuleToProfile(const std::string& file,
                             const std::string& profileName,
                             const std::string& rule) {

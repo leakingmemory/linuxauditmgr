@@ -85,7 +85,11 @@ change and file:
 - for an **implicit** denial, **Allow** or **Deny** the access (adds a
   file/ptrace/signal allow or `deny` rule). The generated rule is shown in an
   editable field first, so you can adjust it — most usefully to widen the exact
-  denied path into a glob (e.g. `/home/*/.cache/**`) before writing. When the
+  denied path into a glob (e.g. `/home/*/.cache/**`) before writing. For file
+  rules an **Owner only** checkbox toggles the `owner` qualifier (it starts on
+  when the logged access was to a file the user owns, i.e. `fsuid == ouid`): on
+  means the rule matches only files owned by the running user; off makes it
+  apply to any user. When the
   new rule is a file rule, any existing file rules it covers are tidied up:
   overlapping permissions are removed from them, and a rule left with no
   permissions is deleted. This is done conservatively (same decision / `audit`
