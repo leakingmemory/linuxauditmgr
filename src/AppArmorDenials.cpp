@@ -1,6 +1,7 @@
 #include "AppArmorDenials.h"
 
 #include <algorithm>
+#include <cctype>
 #include <map>
 
 namespace apparmor {
@@ -145,10 +146,71 @@ bool profileNameMatches(const Profile& p, const std::string& name) {
     return p.name == name || (!p.attachment.empty() && p.attachment == name);
 }
 
+// A ptrace/signal rule's argument string (everything after the keyword) split
+// into its access modes and optional peer.
+struct PeerRuleParts {
+    std::vector<std::string> modes; // read/readby/trace/tracedby, send/receive...
+    std::string              peer;  // value of peer=, unescaped
+    bool                     hasPeer = false;
+};
+
+// Parse "readby peer=/opt/zoom/zoom" or "(read, trace) peer=..." into its
+// modes and peer. Parens, commas and quotes are punctuation; a backslash
+// escapes the next character (aa-tools write a profile name's literal '*' as
+// '\*'). `set=`/`label=` qualifiers are not access modes and are ignored.
+PeerRuleParts parsePeerRule(const std::string& arg) {
+    PeerRuleParts out;
+    std::string tok;
+    auto commit = [&] {
+        if (tok.empty())
+            return;
+        if (tok.rfind("peer=", 0) == 0) {
+            const std::string raw = tok.substr(5);
+            for (std::size_t k = 0; k < raw.size(); ++k) {
+                if (raw[k] == '"')
+                    continue;
+                if (raw[k] == '\\' && k + 1 < raw.size())
+                    out.peer += raw[++k];
+                else
+                    out.peer += raw[k];
+            }
+            out.hasPeer = true;
+        } else if (tok.rfind("set=", 0) != 0 && tok.rfind("label=", 0) != 0) {
+            out.modes.push_back(tok);
+        }
+        tok.clear();
+    };
+    for (char c : arg) {
+        if (c == '(' || c == ')' || c == ',' ||
+            std::isspace(static_cast<unsigned char>(c)))
+            commit();
+        else
+            tok += c;
+    }
+    commit();
+    return out;
+}
+
+// Does a ptrace/signal rule mediate this access? Match the access mode (a rule
+// with no modes covers every mode) and the peer (a rule with no peer covers
+// every peer; otherwise the rule's peer glob must match the denied peer).
+bool peerRuleMatches(const Rule& r, const Denial& d, const std::string& mode) {
+    const PeerRuleParts parts = parsePeerRule(r.target);
+    if (!parts.modes.empty() && !mode.empty() &&
+        std::find(parts.modes.begin(), parts.modes.end(), mode) ==
+            parts.modes.end())
+        return false;
+    if (parts.hasPeer &&
+        (d.target.empty() || !globMatch(parts.peer, d.target)))
+        return false;
+    return true;
+}
+
 // Find the first rule in `prof` of the wanted decision that mediates `d`.
-// `effMask` is the access mask to test against file-rule permissions (the
-// denied mask for denials, the requested mask for allows). Shared by the
-// correlation passes and the per-rule hit counter so they always agree.
+// `effMask` is the access mask to test (the denied mask for denials, the
+// requested mask for allows): file-rule permissions for file rules, the access
+// mode for ptrace/signal rules. Shared by the correlation passes and the
+// per-rule hit counter so they always agree.
 const Rule* firstMatchingRule(const Profile& prof, const Denial& d,
                               Decision want, const std::string& effMask) {
     const RuleKind wantKind = kindForOperation(d);
@@ -166,6 +228,12 @@ const Rule* firstMatchingRule(const Profile& prof, const Denial& d,
             // otherwise the mask (normalized to rule permissions) must overlap.
             if (!r.perms.empty() &&
                 !masksOverlap(r.perms, normalizeFilePerms(effMask)))
+                continue;
+        } else if (wantKind == RuleKind::Ptrace || wantKind == RuleKind::Signal) {
+            // Match the peer and access mode, not just the rule kind, so an
+            // unrelated `deny ptrace ... peer=X` does not swallow a denial whose
+            // peer is Y.
+            if (!peerRuleMatches(r, d, effMask))
                 continue;
         }
         return &r;

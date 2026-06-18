@@ -297,6 +297,46 @@ profile app /usr/bin/app {
     CHECK(groups[2].correlation == Correlation::Unknown);
 }
 
+TEST_CASE("ptrace/signal correlation matches on peer and access mode") {
+    auto profiles = parseText(R"(
+profile app /usr/bin/app {
+  deny ptrace readby peer=/opt/zoom/zoom,
+  ptrace read peer=/home/\*/app,
+}
+)",
+                              "app");
+
+    auto mk = [](const char* peer, const char* mask) {
+        DenialGroup g;
+        g.sample.profile = "/usr/bin/app";
+        g.sample.operation = "ptrace";
+        g.sample.klass = "ptrace";
+        g.sample.target = peer;
+        g.sample.requestedMask = mask;
+        g.sample.deniedMask = mask;
+        g.count = 1;
+        return g;
+    };
+
+    std::vector<DenialGroup> groups = {
+        mk("/home/*/rustrover", "readby"), // [0] no deny for this peer -> implicit
+        mk("/opt/zoom/zoom", "readby"),    // [1] matches the zoom deny exactly
+        mk("/opt/zoom/zoom", "trace"),     // [2] zoom deny is readby-only -> implicit
+    };
+    correlate(groups, profiles);
+
+    CHECK(groups[0].correlation == Correlation::Implicit);
+    CHECK(groups[1].correlation == Correlation::ExplicitDeny);
+    CHECK(groups[1].matchedRule == "deny ptrace readby peer=/opt/zoom/zoom");
+    CHECK(groups[2].correlation == Correlation::Implicit);
+
+    // The allow rule's escaped-'*' peer glob matches the canonical peer name.
+    std::vector<DenialGroup> allows = {mk("/home/*/app", "read")};
+    correlateAllows(allows, profiles);
+    CHECK(allows[0].correlation == Correlation::AllowedByRule);
+    CHECK(allows[0].matchedRule == "ptrace read peer=/home/\\*/app");
+}
+
 TEST_CASE("correlation is owner-aware: owner rules don't cover non-owner access") {
     auto profiles = parseText(R"(
 profile app /usr/bin/app {
