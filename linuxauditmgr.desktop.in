@@ -3,8 +3,13 @@ Type=Application
 Name=Linux Audit Manager
 GenericName=Audit Log & AppArmor Viewer
 Comment=Read Linux audit logs and manage AppArmor profiles
-Exec=linuxauditmgr
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/linuxauditmgr
 Terminal=false
 Categories=System;Security;
 Icon=utilities-system-monitor
 Keywords=audit;auditd;apparmor;security;log;profile;
+Actions=run-as-root;
+
+[Desktop Action run-as-root]
+Name=Run as administrator (root)
+Exec=pkexec @CMAKE_INSTALL_FULL_BINDIR@/linuxauditmgr

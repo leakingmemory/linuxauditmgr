@@ -57,8 +57,20 @@ include(GNUInstallDirs)
 install(TARGETS linuxauditmgr
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 
-install(FILES linuxauditmgr.desktop
+# The desktop entry and the PolicyKit action embed the absolute path of the
+# installed binary, so configure them from templates (@ONLY substitutes only
+# @VAR@ placeholders). pkexec uses the action (matched by exec.path) to run the
+# app as root for the desktop "Run as administrator" launch, retaining the GUI
+# environment via the allow_gui annotation.
+configure_file(linuxauditmgr.desktop.in linuxauditmgr.desktop @ONLY)
+configure_file(org.radiotube.linuxauditmgr.policy.in
+               org.radiotube.linuxauditmgr.policy @ONLY)
+
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/linuxauditmgr.desktop"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/org.radiotube.linuxauditmgr.policy"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/polkit-1/actions")
 
 install(FILES README.md
     DESTINATION "${CMAKE_INSTALL_DOCDIR}")

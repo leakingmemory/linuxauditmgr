@@ -180,8 +180,27 @@ DESTDIR=/tmp/pkg cmake --install build --prefix /usr   # staged/packaged install
 ```
 
 It installs the `linuxauditmgr` binary to `${CMAKE_INSTALL_BINDIR}`, a desktop
-entry to `${CMAKE_INSTALL_DATADIR}/applications`, and this README to
+entry to `${CMAKE_INSTALL_DATADIR}/applications`, a PolicyKit action to
+`${CMAKE_INSTALL_DATADIR}/polkit-1/actions`, and this README to
 `${CMAKE_INSTALL_DOCDIR}`.
+
+### Running as root
+
+Editing, validating and reapplying profiles under `/etc/apparmor.d` needs root.
+The install ships a PolicyKit action (`org.radiotube.linuxauditmgr.run`) bound
+to the installed binary, so you can launch it as root via `pkexec` with a normal
+authentication dialog:
+
+```sh
+pkexec /usr/local/bin/linuxauditmgr   # path must match the installed prefix
+```
+
+The desktop entry also exposes this as a **Run as administrator (root)** action
+(right-click the launcher). The action sets
+`org.freedesktop.policykit.exec.allow_gui`, so `$DISPLAY`/`$XAUTHORITY` are
+retained and the GUI works as root (via Xwayland on a Wayland session). The
+`exec.path` annotation binds the action to the installed binary's absolute path,
+so `pkexec` must be given that same path.
 
 ## Tests
 
