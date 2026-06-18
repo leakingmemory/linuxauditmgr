@@ -18,6 +18,7 @@ enum {
     ID_ReadCurrent,
     ID_StartLive,
     ID_StopLive,
+    ID_Clear,
     ID_Search,
     ID_TypeChoice,
     ID_List,
@@ -87,6 +88,7 @@ wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
     EVT_BUTTON(ID_ReadCurrent, MainFrame::onReadCurrent)
     EVT_BUTTON(ID_StartLive, MainFrame::onStartLive)
     EVT_BUTTON(ID_StopLive, MainFrame::onStopLive)
+    EVT_BUTTON(ID_Clear, MainFrame::onClear)
     EVT_TEXT(ID_Search, MainFrame::onFilterChanged)
     EVT_CHOICE(ID_TypeChoice, MainFrame::onFilterChanged)
     EVT_LIST_ITEM_SELECTED(ID_List, MainFrame::onItemSelected)
@@ -119,9 +121,14 @@ MainFrame::MainFrame(const wxString& initialPath)
     m_readBtn = new wxButton(root, ID_ReadCurrent, "Read Current Logs");
     m_liveBtn = new wxButton(root, ID_StartLive, "Start Live");
     m_stopBtn = new wxButton(root, ID_StopLive, "Stop Live");
+    m_clearBtn = new wxButton(root, ID_Clear, "Clear History");
+    m_clearBtn->SetToolTip("Discard the events shown here and the AppArmor "
+                           "denials/allows derived from them; live following "
+                           "keeps running, so only new events appear afterwards.");
     actionRow->Add(m_readBtn, 0, wxRIGHT, 6);
     actionRow->Add(m_liveBtn, 0, wxRIGHT, 6);
-    actionRow->Add(m_stopBtn, 0, wxRIGHT, 16);
+    actionRow->Add(m_stopBtn, 0, wxRIGHT, 6);
+    actionRow->Add(m_clearBtn, 0, wxRIGHT, 16);
 
     actionRow->Add(new wxStaticText(root, wxID_ANY, "Type:"), 0,
                    wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
@@ -159,12 +166,12 @@ MainFrame::MainFrame(const wxString& initialPath)
     root->SetSizer(rootSizer);
 
     // --- Page 2: AppArmor (profiles + denials sub-tabs) ---
-    auto* apparmor = new AppArmorTab(
+    m_apparmor = new AppArmorTab(
         notebook, defaultAppArmorDir(),
         [this]() -> const std::vector<audit::Event>& { return m_events; });
 
     notebook->AddPage(root, "Audit Log");
-    notebook->AddPage(apparmor, "AppArmor");
+    notebook->AddPage(m_apparmor, "AppArmor");
 
     CreateStatusBar();
     SetStatusText("Ready. Choose a log file, then Read Current Logs or Start Live.");
@@ -225,6 +232,28 @@ void MainFrame::onStopLive(wxCommandEvent&) {
     m_live = false;
     updateButtons();
     SetStatusText("Live follow stopped.");
+}
+
+void MainFrame::onClear(wxCommandEvent&) {
+    // Drop the accumulated events without touching the tailer: if a live follow
+    // is running it keeps going, so the next lines it reads are appended to the
+    // now-empty buffer and only those new events appear. The type/text filters
+    // are deliberately left intact so they keep applying to the new events.
+    const bool live = m_live;
+    m_events.clear();
+    m_filtered.clear();
+
+    m_list->SetItemCount(0);
+    m_list->Refresh();
+    m_detail->Clear();
+
+    // The AppArmor Denials/Allows sub-tabs are aggregated from the same events,
+    // so recompute them now to clear the old denials/allows too.
+    if (m_apparmor)
+        m_apparmor->refreshEventViews();
+
+    SetStatusText(live ? "History cleared. Showing only new events from here on."
+                       : "History cleared.");
 }
 
 void MainFrame::setStatus(const std::string& text) {

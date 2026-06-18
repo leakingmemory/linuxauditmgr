@@ -8,6 +8,8 @@
 #include "AuditParser.h"
 #include "LogTailer.h"
 
+class AppArmorTab;
+
 // Main application window: controls to load / live-follow an audit log, a
 // virtual list of decoded events, and a detail pane for the selected event.
 class MainFrame : public wxFrame {
@@ -24,6 +26,7 @@ private:
     void onReadCurrent(wxCommandEvent&);
     void onStartLive(wxCommandEvent&);
     void onStopLive(wxCommandEvent&);
+    void onClear(wxCommandEvent&);
     void onFilterChanged(wxCommandEvent&);
     void onItemSelected(wxListEvent&);
 
@@ -43,10 +46,12 @@ private:
     wxButton*    m_readBtn      = nullptr;
     wxButton*    m_liveBtn      = nullptr;
     wxButton*    m_stopBtn      = nullptr;
+    wxButton*    m_clearBtn     = nullptr;
     wxTextCtrl*  m_searchCtrl   = nullptr;
     wxChoice*    m_typeChoice   = nullptr;
     EventList*   m_list         = nullptr;
     wxTextCtrl*  m_detail       = nullptr;
+    AppArmorTab* m_apparmor     = nullptr;
 
     std::vector<audit::Event> m_events;     // all loaded events
     std::vector<std::size_t>  m_filtered;   // indices into m_events that match

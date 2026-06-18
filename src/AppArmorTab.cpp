@@ -43,6 +43,13 @@ AppArmorTab::AppArmorTab(wxWindow* parent, const wxString& initialDir,
     SetSizer(sizer);
 }
 
+void AppArmorTab::refreshEventViews() {
+    if (m_denials)
+        m_denials->refresh();
+    if (m_allows)
+        m_allows->refresh();
+}
+
 void AppArmorTab::onSubPageChanged(wxBookCtrlEvent& evt) {
     // Recompute a sub-tab when it is brought to the front, so it reflects the
     // latest audit log and loaded profiles.

@@ -23,6 +23,10 @@ public:
     AppArmorTab(wxWindow* parent, const wxString& initialDir,
                 EventsProvider events);
 
+    // Recompute the Denials and Allows sub-tabs from the current audit events.
+    // Called when the audit history is cleared so they stop showing stale hits.
+    void refreshEventViews();
+
 private:
     void onSubPageChanged(wxBookCtrlEvent&);
 
