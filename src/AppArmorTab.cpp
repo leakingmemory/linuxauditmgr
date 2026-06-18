@@ -5,6 +5,7 @@
 #include "AppArmorEventsPanel.h"
 #include "AppArmorPanel.h"
 #include "AppArmorValidationPanel.h"
+#include "RuleHitsPanel.h"
 
 wxBEGIN_EVENT_TABLE(AppArmorTab, wxPanel)
     EVT_NOTEBOOK_PAGE_CHANGED(wxID_ANY, AppArmorTab::onSubPageChanged)
@@ -30,12 +31,14 @@ AppArmorTab::AppArmorTab(wxWindow* parent, const wxString& initialDir,
                                         events, profiles, reload);
     m_allows = new AppArmorEventsPanel(m_notebook,
                                        AppArmorEventsPanel::Mode::Allows,
-                                       std::move(events), profiles, reload);
+                                       events, profiles, reload);
+    m_ruleHits = new RuleHitsPanel(m_notebook, std::move(events), profiles);
     m_validation = new AppArmorValidationPanel(m_notebook, profiles, reload);
 
     m_notebook->AddPage(m_profiles, "Profiles");
     m_notebook->AddPage(m_denials, "Denials");
     m_notebook->AddPage(m_allows, "Allows");
+    m_notebook->AddPage(m_ruleHits, "Rule hits");
     m_notebook->AddPage(m_validation, "Validation");
 
     auto* sizer = new wxBoxSizer(wxVERTICAL);
@@ -48,6 +51,8 @@ void AppArmorTab::refreshEventViews() {
         m_denials->refresh();
     if (m_allows)
         m_allows->refresh();
+    if (m_ruleHits)
+        m_ruleHits->refresh();
 }
 
 void AppArmorTab::onSubPageChanged(wxBookCtrlEvent& evt) {
@@ -59,6 +64,8 @@ void AppArmorTab::onSubPageChanged(wxBookCtrlEvent& evt) {
             m_denials->refresh();
         else if (page == m_allows)
             m_allows->refresh();
+        else if (page == m_ruleHits)
+            m_ruleHits->refresh();
     }
     evt.Skip();
 }

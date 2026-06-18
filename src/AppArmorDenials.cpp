@@ -140,6 +140,39 @@ RuleKind kindForOperation(const Denial& d) {
     return RuleKind::Other;
 }
 
+// Does this profile's name (or attachment) equal the denied profile string?
+bool profileNameMatches(const Profile& p, const std::string& name) {
+    return p.name == name || (!p.attachment.empty() && p.attachment == name);
+}
+
+// Find the first rule in `prof` of the wanted decision that mediates `d`.
+// `effMask` is the access mask to test against file-rule permissions (the
+// denied mask for denials, the requested mask for allows). Shared by the
+// correlation passes and the per-rule hit counter so they always agree.
+const Rule* firstMatchingRule(const Profile& prof, const Denial& d,
+                              Decision want, const std::string& effMask) {
+    const RuleKind wantKind = kindForOperation(d);
+    for (const auto& r : prof.rules) {
+        if (r.decision != want || r.kind != wantKind)
+            continue;
+        if (wantKind == RuleKind::File) {
+            // An owner-conditional rule only matches an owner-conditional
+            // access; a plain rule matches both.
+            if (r.owner && !d.owner)
+                continue;
+            if (!globMatch(r.target, d.target))
+                continue;
+            // A perm-less rule (e.g. `deny <path>,`) covers everything;
+            // otherwise the mask (normalized to rule permissions) must overlap.
+            if (!r.perms.empty() &&
+                !masksOverlap(r.perms, normalizeFilePerms(effMask)))
+                continue;
+        }
+        return &r;
+    }
+    return nullptr;
+}
+
 } // namespace
 
 const char* correlationName(Correlation c) {
@@ -248,29 +281,8 @@ void correlate(std::vector<DenialGroup>& groups,
         }
         g.profileFile = prof->sourceFile;
 
-        const RuleKind wantKind = kindForOperation(g.sample);
-        const Rule* match = nullptr;
-        for (const auto& r : prof->rules) {
-            if (r.decision != Decision::Deny || r.kind != wantKind)
-                continue;
-            if (wantKind == RuleKind::File) {
-                // An owner-conditional rule only matches an owner-conditional
-                // access; a plain rule matches both.
-                if (r.owner && !g.sample.owner)
-                    continue;
-                if (!globMatch(r.target, g.sample.target))
-                    continue;
-                // A perm-less deny (deny <path>,) covers everything; otherwise
-                // the denied mask (normalized to rule permissions) must overlap
-                // the rule's permissions.
-                if (!r.perms.empty() &&
-                    !masksOverlap(r.perms, normalizeFilePerms(g.sample.deniedMask)))
-                    continue;
-            }
-            match = &r;
-            break;
-        }
-
+        const Rule* match = firstMatchingRule(*prof, g.sample, Decision::Deny,
+                                              g.sample.deniedMask);
         if (match) {
             g.correlation = Correlation::ExplicitDeny;
             g.matchedRule = match->raw;
@@ -290,29 +302,11 @@ void correlateAllows(std::vector<DenialGroup>& groups,
         }
         g.profileFile = prof->sourceFile;
 
-        const RuleKind wantKind = kindForOperation(g.sample);
         const std::string mask = g.sample.requestedMask.empty()
                                      ? g.sample.deniedMask
                                      : g.sample.requestedMask;
-        const Rule* match = nullptr;
-        for (const auto& r : prof->rules) {
-            if (r.decision != Decision::Allow || r.kind != wantKind)
-                continue;
-            if (wantKind == RuleKind::File) {
-                // An owner-conditional rule only matches an owner-conditional
-                // access; a plain rule matches both.
-                if (r.owner && !g.sample.owner)
-                    continue;
-                if (!globMatch(r.target, g.sample.target))
-                    continue;
-                if (!r.perms.empty() &&
-                    !masksOverlap(r.perms, normalizeFilePerms(mask)))
-                    continue;
-            }
-            match = &r;
-            break;
-        }
-
+        const Rule* match =
+            firstMatchingRule(*prof, g.sample, Decision::Allow, mask);
         if (match) {
             g.correlation = Correlation::AllowedByRule;
             g.matchedRule = match->raw;
@@ -325,6 +319,40 @@ void correlateAllows(std::vector<DenialGroup>& groups,
             g.correlation = Correlation::AllowedByRule;
         }
     }
+}
+
+std::vector<RuleHitCount> countRuleHits(const Profile& profile,
+                                        const std::vector<Denial>& denials,
+                                        const std::vector<Denial>& allows) {
+    std::vector<RuleHitCount> hits(profile.rules.size());
+
+    auto bump = [&](const Rule* r, double ts) {
+        if (!r)
+            return;
+        // firstMatchingRule returns a pointer into profile.rules' storage, so
+        // its offset is the rule's index.
+        const std::size_t i = static_cast<std::size_t>(r - profile.rules.data());
+        RuleHitCount& h = hits[i];
+        if (h.count == 0 || ts < h.firstSeen)
+            h.firstSeen = ts;
+        h.lastSeen = std::max(h.lastSeen, ts);
+        ++h.count;
+    };
+
+    for (const auto& d : denials) {
+        if (!profileNameMatches(profile, d.profile))
+            continue;
+        bump(firstMatchingRule(profile, d, Decision::Deny, d.deniedMask),
+             d.timestamp);
+    }
+    for (const auto& a : allows) {
+        if (!profileNameMatches(profile, a.profile))
+            continue;
+        const std::string mask =
+            a.requestedMask.empty() ? a.deniedMask : a.requestedMask;
+        bump(firstMatchingRule(profile, a, Decision::Allow, mask), a.timestamp);
+    }
+    return hits;
 }
 
 } // namespace apparmor

@@ -38,8 +38,8 @@ This project started for two reasons:
 
 ### AppArmor profile viewer
 
-A second tab has four sub-tabs: **Profiles**, **Denials**, **Allows** and
-**Validation**. The
+A second tab has five sub-tabs: **Profiles**, **Denials**, **Allows**, **Rule
+hits** and **Validation**. The
 **Profiles** sub-tab parses a directory of
 AppArmor profiles (e.g. `/etc/apparmor.d`) and shows, per profile, what access
 it **gives** (allow rules) versus **takes** (explicit `deny` rules):
@@ -119,6 +119,24 @@ The complain-mode-only entries are the actionable ones: select one and use the
 **Actions...** menu to add the allow rule (same editable dialog and crash-safe
 write as Denials), so the access keeps working after you switch the profile back
 to enforce.
+
+The **Rule hits** sub-tab is the inverse of Denials/Allows: instead of starting
+from events and finding the rule, it starts from a profile's rules and counts
+how often the loaded log exercised each one. Pick a profile (child profiles /
+hats are listed too) and it shows every rule of that profile with a **hit
+count** and the **last hit** time, sorted most-hit first:
+
+- a **deny** rule is credited for each `DENIED` record it explains; an **allow**
+  rule for each `ALLOWED` record it matches (those are only logged in complain
+  mode or for an `audit` rule, so an enforcing allow that is never logged shows
+  0);
+- matching uses the same logic as the correlation views — only the first
+  matching rule of a kind is credited, exactly as the kernel applies policy, and
+  `owner` rules are only credited for accesses to files the running user owns.
+
+This makes it easy to spot rules that nothing in the log uses (candidates for
+tightening) and the hot rules a profile leans on. Select a rule for its details
+(permissions decoded, owner/audit flags, first/last hit).
 
 The **Validation** sub-tab checks the profile files with the real
 `apparmor_parser` tool — `apparmor_parser -Q --skip-cache <file>` compiles each
@@ -250,9 +268,10 @@ On launch the tool defaults to `/var/log/audit/audit.log` if readable
 | `src/AppArmorValidator.*` | Validate profile files via `apparmor_parser -Q --skip-cache` |
 | `src/AppArmorNormalizer.*` | Canonicalize a profile (sort/merge/dedupe rules) + line diff |
 | `src/MainFrame.*`    | wxWidgets UI: notebook hosting the audit + AppArmor tabs |
-| `src/AppArmorTab.*`  | AppArmor tab: inner notebook with the four sub-tabs |
+| `src/AppArmorTab.*`  | AppArmor tab: inner notebook with the five sub-tabs |
 | `src/AppArmorPanel.*` | wxWidgets UI for the AppArmor profile (gives/takes) sub-tab |
 | `src/AppArmorEventsPanel.*` | wxWidgets UI for the Denials and Allows sub-tabs (by mode) |
+| `src/RuleHitsPanel.*` | wxWidgets UI for the Rule hits sub-tab (per-rule hit counts) |
 | `src/AppArmorValidationPanel.*` | wxWidgets UI for the Validation sub-tab (background-threaded) |
 | `src/App.cpp`        | `wxApp` entry point |
 

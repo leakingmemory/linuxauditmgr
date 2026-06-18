@@ -73,6 +73,23 @@ void correlate(std::vector<DenialGroup>& groups,
 void correlateAllows(std::vector<DenialGroup>& groups,
                      const std::vector<Profile>& profiles);
 
+// How often a single rule in a profile was hit by the audit log.
+struct RuleHitCount {
+    std::size_t count = 0;     // number of matching audit events
+    double      firstSeen = 0.0;
+    double      lastSeen = 0.0;
+};
+
+// Count, per rule of `profile`, how many audit events that rule mediated. The
+// returned vector is parallel to profile.rules (result[i] is for rules[i]).
+// `denials` and `allows` are the DENIED / ALLOWED records extracted from the
+// log; a deny rule is credited for the denials it matches, an allow rule for
+// the allows it matches, using the same matching as the correlation passes
+// (so only the first matching rule of a kind is credited, like the kernel).
+std::vector<RuleHitCount> countRuleHits(const Profile& profile,
+                                        const std::vector<Denial>& denials,
+                                        const std::vector<Denial>& allows);
+
 // AppArmor-style glob match. Supports '?', '*' (does not cross '/'), '**'
 // (crosses '/') and '{a,b,c}' alternation. Used to match denied paths against
 // file rule patterns.

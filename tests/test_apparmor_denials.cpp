@@ -106,6 +106,85 @@ profile lax /usr/bin/lax flags=(complain) {
     CHECK(groups[4].correlation == Correlation::Unknown);
 }
 
+TEST_CASE("countRuleHits credits each rule for the events it mediates") {
+    auto profiles = parseText(R"(
+profile app /usr/bin/app {
+  /etc/allowed r,
+  owner /home/*/data rw,
+  deny /etc/secret/** rw,
+}
+)",
+                              "app");
+    REQUIRE(profiles.size() == 1);
+    const Profile& p = profiles[0];
+    REQUIRE(p.rules.size() == 3); // [0] allow /etc/allowed, [1] owner, [2] deny
+
+    auto allow = [](const char* target, const char* mask, bool owner) {
+        Denial d;
+        d.profile = "/usr/bin/app";
+        d.operation = "open";
+        d.klass = "file";
+        d.target = target;
+        d.requestedMask = mask;
+        d.owner = owner;
+        return d;
+    };
+    auto deny = [](const char* target, const char* mask, double ts) {
+        Denial d;
+        d.profile = "/usr/bin/app";
+        d.operation = "open";
+        d.klass = "file";
+        d.target = target;
+        d.deniedMask = mask;
+        d.timestamp = ts;
+        return d;
+    };
+
+    std::vector<Denial> allows = {
+        allow("/etc/allowed", "r", false),      // -> rule[0]
+        allow("/etc/allowed", "r", false),      // -> rule[0]
+        allow("/home/u/data", "rw", true),      // -> rule[1] (owner)
+        allow("/home/u/data", "rw", false),     // owner rule can't cover -> none
+    };
+    std::vector<Denial> denials = {
+        deny("/etc/secret/key", "r", 100),      // -> rule[2]
+        deny("/etc/secret/key", "r", 200),      // -> rule[2]
+        deny("/etc/elsewhere", "r", 150),        // implicit, matches no rule
+    };
+
+    auto hits = countRuleHits(p, denials, allows);
+    REQUIRE(hits.size() == 3);
+    CHECK(hits[0].count == 2);  // /etc/allowed r,
+    CHECK(hits[1].count == 1);  // owner /home/*/data rw,  (non-owner ignored)
+    CHECK(hits[2].count == 2);  // deny /etc/secret/** rw,
+    CHECK(hits[2].firstSeen == 100);
+    CHECK(hits[2].lastSeen == 200);
+}
+
+TEST_CASE("countRuleHits ignores events from other profiles") {
+    auto profiles = parseText(R"(
+profile app /usr/bin/app {
+  /etc/x r,
+}
+)",
+                              "app");
+    const Profile& p = profiles[0];
+
+    auto mk = [](const char* prof) {
+        Denial d;
+        d.profile = prof;
+        d.operation = "open";
+        d.klass = "file";
+        d.target = "/etc/x";
+        d.requestedMask = "r";
+        return d;
+    };
+    std::vector<Denial> allows = {mk("/usr/bin/app"), mk("/usr/bin/other")};
+    auto hits = countRuleHits(p, {}, allows);
+    REQUIRE(hits.size() == 1);
+    CHECK(hits[0].count == 1); // only the matching-profile event counted
+}
+
 TEST_CASE("globMatch handles stars, double-stars and braces") {
     CHECK(globMatch("/usr/bin/foo", "/usr/bin/foo"));
     CHECK_FALSE(globMatch("/usr/bin/foo", "/usr/bin/bar"));
