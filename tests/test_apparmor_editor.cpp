@@ -51,9 +51,9 @@ TEST_CASE("buildRule renders allow and deny rules per class") {
     ptrace.target = "/usr/bin/peer";
     ptrace.deniedMask = "readby";
     CHECK(*buildRule(ptrace, Decision::Allow) ==
-          R"(ptrace (readby) peer="/usr/bin/peer",)");
+          "ptrace (readby) peer=/usr/bin/peer,");
     CHECK(*buildRule(ptrace, Decision::Deny) ==
-          R"(deny ptrace (readby) peer="/usr/bin/peer",)");
+          "deny ptrace (readby) peer=/usr/bin/peer,");
 
     Denial sig;
     sig.operation = "signal";
@@ -79,6 +79,23 @@ TEST_CASE("buildRule emits an owner rule when the access is owner-conditional") 
     CHECK(*buildRule(d, Decision::Allow) == "/home/sigsegv/.config/x rw,");
 }
 
+TEST_CASE("ptrace peer with a glob profile name is escaped, not wildcarded") {
+    // The peer is a profile NAME containing a literal '*' (from its attachment
+    // glob). It must be escaped (\*) so the kernel matches that literal '*';
+    // an unescaped '*' is a wildcard the kernel will not match against it.
+    Denial d;
+    d.operation = "ptrace";
+    d.klass = "ptrace";
+    d.profile = "/home/*/.local/share/app/jspawnhelper";
+    d.target = "/home/*/.local/share/app/rustrover";
+    d.deniedMask = "readby";
+    CHECK(*buildRule(d, Decision::Allow) ==
+          R"(ptrace (readby) peer=/home/\*/.local/share/app/rustrover,)");
+    // The complementary peer rule escapes our own (globbed) profile name too.
+    CHECK(*buildPeerRule(d, Decision::Allow) ==
+          R"(ptrace (read) peer=/home/\*/.local/share/app/jspawnhelper,)");
+}
+
 TEST_CASE("buildPeerRule builds the complementary rule for the peer profile") {
     Denial d;
     d.operation = "ptrace";
@@ -89,14 +106,14 @@ TEST_CASE("buildPeerRule builds the complementary rule for the peer profile") {
 
     // The peer profile needs the inverse mode (readby -> read) with peer = us.
     CHECK(*buildPeerRule(d, Decision::Allow) ==
-          R"(ptrace (read) peer="/usr/bin/jspawnhelper",)");
+          "ptrace (read) peer=/usr/bin/jspawnhelper,");
     CHECK(*buildPeerRule(d, Decision::Deny) ==
-          R"(deny ptrace (read) peer="/usr/bin/jspawnhelper",)");
+          "deny ptrace (read) peer=/usr/bin/jspawnhelper,");
 
     // The other ptrace directions and signals invert too.
     d.deniedMask = "tracedby";
     CHECK(*buildPeerRule(d, Decision::Allow) ==
-          R"(ptrace (trace) peer="/usr/bin/jspawnhelper",)");
+          "ptrace (trace) peer=/usr/bin/jspawnhelper,");
 
     Denial sig;
     sig.operation = "signal";
@@ -105,7 +122,7 @@ TEST_CASE("buildPeerRule builds the complementary rule for the peer profile") {
     sig.target = "/usr/bin/b";
     sig.deniedMask = "receive";
     CHECK(*buildPeerRule(sig, Decision::Allow) ==
-          R"(signal (send) peer="/usr/bin/a",)");
+          "signal (send) peer=/usr/bin/a,");
 
     // No peer rule for unconfined peers or non-peer-mediated classes.
     Denial unconf = d;

@@ -55,12 +55,33 @@ std::string maybeQuote(const std::string& s) {
     return s;
 }
 
-// peer= values are profile names; quote them unless they are the special
-// "unconfined" keyword.
+// peer= values are profile NAMES to be matched literally, not globs. A profile
+// name routinely contains a literal '*' (its attachment glob is used as the
+// name); an unescaped '*' in the rule is a wildcard and the kernel does NOT
+// match it against that literal '*', so the access stays denied. So escape AARE
+// metacharacters (as aa-logprof does: peer=/home/\*/...) and quote only when the
+// name contains whitespace. The special "unconfined" keyword is emitted bare.
 std::string peerToken(const std::string& peer) {
     if (peer.empty() || peer == "unconfined")
         return peer;
-    return '"' + peer + '"';
+    std::string out;
+    bool needQuote = false;
+    for (char c : peer) {
+        switch (c) {
+        case '*': case '?': case '[': case ']':
+        case '{': case '}': case '^': case '\\': case '"':
+            out += '\\';
+            out += c;
+            break;
+        case ' ': case '\t':
+            needQuote = true;
+            out += c;
+            break;
+        default:
+            out += c;
+        }
+    }
+    return needQuote ? '"' + out + '"' : out;
 }
 
 RuleKind kindForDenial(const Denial& d) {
