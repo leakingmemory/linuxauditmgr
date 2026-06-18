@@ -187,6 +187,14 @@ std::optional<Denial> aaEvent(const audit::Event& event, const char* verdict) {
     else if (auto peer = avc->get("peer"))
         d.target = std::string(*peer);
 
+    // AppArmor's `owner` conditional matches when the accessing task's fsuid
+    // equals the file owner's uid (ouid). When the kernel logged both and they
+    // are equal, an owner rule covers this access and is the tighter grant, so
+    // suggest one - matching what aa-logprof does.
+    if (auto fsuid = avc->get("fsuid"), ouid = avc->get("ouid");
+        fsuid && ouid && !fsuid->empty() && *fsuid == *ouid)
+        d.owner = true;
+
     return d;
 }
 } // namespace
@@ -203,7 +211,8 @@ std::vector<DenialGroup> aggregateDenials(const std::vector<Denial>& denials) {
     std::map<std::string, DenialGroup> groups;
     for (const auto& d : denials) {
         const std::string key = d.profile + '\x1f' + d.operation + '\x1f' +
-                                d.target + '\x1f' + d.deniedMask;
+                                d.target + '\x1f' + d.deniedMask + '\x1f' +
+                                (d.owner ? "o" : "");
         auto [it, inserted] = groups.try_emplace(key);
         DenialGroup& g = it->second;
         if (inserted) {

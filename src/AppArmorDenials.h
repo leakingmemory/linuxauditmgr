@@ -24,6 +24,7 @@ struct Denial {
     std::string comm;
     std::string pid;
     double      timestamp = 0.0;
+    bool        owner = false; // task fsuid == file ouid: an owner rule applies
 };
 
 // Extract an AppArmor denial from a parsed audit event, or nullopt if the event

@@ -67,6 +67,18 @@ TEST_CASE("buildRule renders allow and deny rules per class") {
     CHECK_FALSE(buildRule(dbus, Decision::Allow).has_value());
 }
 
+TEST_CASE("buildRule emits an owner rule when the access is owner-conditional") {
+    Denial d = fileDenial("p", "/home/sigsegv/.config/x", "rc");
+    d.owner = true;
+    // owner sits after the (absent/deny) decision qualifier, before the path.
+    CHECK(*buildRule(d, Decision::Allow) ==
+          "owner /home/sigsegv/.config/x rw,");
+    CHECK(*buildRule(d, Decision::Deny) ==
+          "deny owner /home/sigsegv/.config/x rw,");
+    d.owner = false;
+    CHECK(*buildRule(d, Decision::Allow) == "/home/sigsegv/.config/x rw,");
+}
+
 TEST_CASE("buildRule maps audit-mask create/delete letters to valid perms") {
     // 'c' (create) and 'd' (delete) are not rule permissions; they map to 'w'.
     CHECK(*buildRule(fileDenial("p", "/dev/shm/R*", "c"), Decision::Allow) ==

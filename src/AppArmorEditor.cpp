@@ -234,7 +234,11 @@ std::optional<std::string> buildRule(const Denial& d, Decision decision) {
         const std::string perms = normalizeFilePerms(mask);
         if (d.target.empty() || perms.empty())
             return std::nullopt;
-        return prefix + maybeQuote(d.target) + ' ' + perms + ',';
+        // Qualifier order is `[deny] [owner] <path> <perms>,`. Emit `owner` when
+        // the access was to a file the task owns (fsuid == ouid), matching the
+        // tighter rule aa-logprof would suggest.
+        const std::string ownerKw = d.owner ? "owner " : "";
+        return prefix + ownerKw + maybeQuote(d.target) + ' ' + perms + ',';
     }
     case RuleKind::Ptrace: {
         std::string rule = prefix + "ptrace";

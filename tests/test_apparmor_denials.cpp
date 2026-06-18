@@ -36,6 +36,36 @@ TEST_CASE("allowFromEvent extracts ALLOWED records, not DENIED ones") {
     CHECK_FALSE(allowFromEvent(eventFromLine(denied)).has_value());
 }
 
+TEST_CASE("denialFromEvent sets owner when fsuid == ouid") {
+    // mknod on a file the task owns: fsuid == ouid -> an owner rule applies.
+    const std::string owned =
+        R"(type=AVC msg=audit(1.0:1): apparmor="DENIED" operation="mknod" )"
+        R"(class="file" profile="/usr/bin/app" name="/home/u/.config/x" )"
+        R"(pid=42 comm="app" requested_mask="c" denied_mask="c" )"
+        R"(fsuid=1000 ouid=1000)";
+    auto a = denialFromEvent(eventFromLine(owned));
+    REQUIRE(a.has_value());
+    CHECK(a->owner);
+
+    // Accessing a file owned by someone else (fsuid != ouid): not owner.
+    const std::string other =
+        R"(type=AVC msg=audit(1.0:2): apparmor="DENIED" operation="open" )"
+        R"(class="file" profile="/usr/bin/app" name="/etc/shadow" pid=42 )"
+        R"(comm="app" requested_mask="r" denied_mask="r" fsuid=1000 ouid=0)";
+    auto b = denialFromEvent(eventFromLine(other));
+    REQUIRE(b.has_value());
+    CHECK_FALSE(b->owner);
+
+    // No uid info at all: default to a non-owner rule.
+    const std::string none =
+        R"(type=AVC msg=audit(1.0:3): apparmor="DENIED" operation="open" )"
+        R"(class="file" profile="/usr/bin/app" name="/tmp/x" pid=42 )"
+        R"(comm="app" requested_mask="r" denied_mask="r")";
+    auto c = denialFromEvent(eventFromLine(none));
+    REQUIRE(c.has_value());
+    CHECK_FALSE(c->owner);
+}
+
 TEST_CASE("correlateAllows distinguishes by-rule, complain-only and unknown") {
     auto profiles = parseText(R"(
 profile enforced /usr/bin/enforced {
