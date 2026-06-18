@@ -306,6 +306,35 @@ bool ruleSupportsOwner(const std::string& ruleText) {
     return r && r->kind == RuleKind::File;
 }
 
+std::optional<std::string> buildPeerRule(const Denial& d, Decision decision) {
+    const RuleKind k = kindForDenial(d);
+    if (k != RuleKind::Ptrace && k != RuleKind::Signal)
+        return std::nullopt;
+    // Need a confined peer (it becomes the rule's profile) and our own profile
+    // (it becomes the rule's peer). An unconfined peer is not mediated.
+    if (d.target.empty() || d.target == "unconfined" || d.profile.empty())
+        return std::nullopt;
+
+    const std::string mask =
+        !d.deniedMask.empty() ? d.deniedMask : d.requestedMask;
+    auto inverse = [](const std::string& m) -> std::string {
+        if (m == "read")     return "readby";
+        if (m == "readby")   return "read";
+        if (m == "trace")    return "tracedby";
+        if (m == "tracedby") return "trace";
+        if (m == "send")     return "receive";
+        if (m == "receive")  return "send";
+        return {};
+    };
+    const std::string inv = inverse(mask);
+    if (inv.empty())
+        return std::nullopt;
+
+    const std::string prefix = (decision == Decision::Deny) ? "deny " : "";
+    const char* kw = (k == RuleKind::Ptrace) ? "ptrace" : "signal";
+    return prefix + kw + " (" + inv + ") peer=" + peerToken(d.profile) + ',';
+}
+
 EditResult addRuleToProfile(const std::string& file,
                             const std::string& profileName,
                             const std::string& rule) {

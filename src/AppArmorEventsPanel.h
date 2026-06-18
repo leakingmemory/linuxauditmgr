@@ -50,6 +50,10 @@ private:
     void popupActionMenu();
     void applyDecision(apparmor::Decision decision);
     void applyReverse();
+    // After allowing a ptrace/signal access, offer to add the complementary
+    // rule the peer profile needs (AppArmor mediates these on both ends).
+    void maybeAddPeerRule(const apparmor::DenialGroup& g,
+                          apparmor::Decision decision, const wxString& dir);
     bool finishEdit(const apparmor::EditResult& r, const wxString& file);
 
     class DenialList;

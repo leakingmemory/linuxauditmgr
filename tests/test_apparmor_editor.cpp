@@ -79,6 +79,46 @@ TEST_CASE("buildRule emits an owner rule when the access is owner-conditional") 
     CHECK(*buildRule(d, Decision::Allow) == "/home/sigsegv/.config/x rw,");
 }
 
+TEST_CASE("buildPeerRule builds the complementary rule for the peer profile") {
+    Denial d;
+    d.operation = "ptrace";
+    d.klass = "ptrace";
+    d.profile = "/usr/bin/jspawnhelper";              // our profile
+    d.target = "/usr/bin/rustrover";                  // the peer
+    d.deniedMask = "readby";
+
+    // The peer profile needs the inverse mode (readby -> read) with peer = us.
+    CHECK(*buildPeerRule(d, Decision::Allow) ==
+          R"(ptrace (read) peer="/usr/bin/jspawnhelper",)");
+    CHECK(*buildPeerRule(d, Decision::Deny) ==
+          R"(deny ptrace (read) peer="/usr/bin/jspawnhelper",)");
+
+    // The other ptrace directions and signals invert too.
+    d.deniedMask = "tracedby";
+    CHECK(*buildPeerRule(d, Decision::Allow) ==
+          R"(ptrace (trace) peer="/usr/bin/jspawnhelper",)");
+
+    Denial sig;
+    sig.operation = "signal";
+    sig.klass = "signal";
+    sig.profile = "/usr/bin/a";
+    sig.target = "/usr/bin/b";
+    sig.deniedMask = "receive";
+    CHECK(*buildPeerRule(sig, Decision::Allow) ==
+          R"(signal (send) peer="/usr/bin/a",)");
+
+    // No peer rule for unconfined peers or non-peer-mediated classes.
+    Denial unconf = d;
+    unconf.target = "unconfined";
+    CHECK_FALSE(buildPeerRule(unconf, Decision::Allow).has_value());
+    Denial file;
+    file.klass = "file";
+    file.profile = "/p";
+    file.target = "/etc/x";
+    file.deniedMask = "r";
+    CHECK_FALSE(buildPeerRule(file, Decision::Allow).has_value());
+}
+
 TEST_CASE("setOwnerQualifier adds/removes owner, preserving qualifier order") {
     // Add owner.
     CHECK(setOwnerQualifier("/home/u/x rw,", true) == "owner /home/u/x rw,");

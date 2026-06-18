@@ -90,6 +90,12 @@ std::vector<RuleHitCount> countRuleHits(const Profile& profile,
                                         const std::vector<Denial>& denials,
                                         const std::vector<Denial>& allows);
 
+// Find a loaded profile by its name or attachment, searching child profiles
+// too, or nullptr if it is not among `profiles`. Used to locate a denial's peer
+// profile so a complementary rule can be written there.
+const Profile* findProfileByName(const std::vector<Profile>& profiles,
+                                 const std::string& name);
+
 // AppArmor-style glob match. Supports '?', '*' (does not cross '/'), '**'
 // (crosses '/') and '{a,b,c}' alternation. Used to match denied paths against
 // file rule patterns.

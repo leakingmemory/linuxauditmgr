@@ -29,6 +29,14 @@ std::string setOwnerQualifier(const std::string& ruleText, bool owner);
 // to - so the UI knows whether to offer an owner/any toggle.
 bool ruleSupportsOwner(const std::string& ruleText);
 
+// For a peer-mediated denial (ptrace/signal), build the COMPLEMENTARY rule the
+// PEER profile needs - AppArmor mediates these on both ends, so allowing the
+// access in only one profile is not enough. The access mode is inverted
+// (read<->readby, trace<->tracedby, send<->receive) and the peer becomes the
+// denial's own profile. Returns nullopt when the denial is not peer-mediated,
+// the peer is unconfined, or the inverse mode is unknown.
+std::optional<std::string> buildPeerRule(const Denial& denial, Decision decision);
+
 struct EditResult {
     bool        ok = false;
     std::string message;   // human-readable success or error description

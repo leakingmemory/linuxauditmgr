@@ -96,6 +96,14 @@ change and file:
   / `owner` qualifier, and only existing rules with a concrete, glob-free path)
   so the effective policy is unchanged — the new, broader rule still covers
   whatever was trimmed away;
+  For **ptrace** and **signal** denials — which AppArmor mediates on *both*
+  ends — allowing in the denial's own profile is not enough: the peer profile
+  needs the complementary rule too (the access mode inverted, `read`↔`readby` /
+  `trace`↔`tracedby` / `send`↔`receive`, with the peer pointing back). After you
+  add the rule, the tool finds the peer profile among the loaded ones and offers
+  to add that matching rule there as well (or, if the peer profile isn't loaded,
+  tells you exactly which rule to add where). Without both halves the access
+  stays denied;
 - for an **explicit-deny** denial, **Reverse this deny rule to allow** — the
   matched `deny` rule is rewritten in place with its `deny` qualifier removed
   (other qualifiers like `audit` are kept). Writes are crash-safe — the new contents are

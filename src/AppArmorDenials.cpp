@@ -389,6 +389,11 @@ void correlateAllows(std::vector<DenialGroup>& groups,
     }
 }
 
+const Profile* findProfileByName(const std::vector<Profile>& profiles,
+                                 const std::string& name) {
+    return findProfile(profiles, name);
+}
+
 std::vector<RuleHitCount> countRuleHits(const Profile& profile,
                                         const std::vector<Denial>& denials,
                                         const std::vector<Denial>& allows) {

@@ -481,7 +481,56 @@ void AppArmorEventsPanel::applyDecision(apparmor::Decision decision) {
 
     apparmor::EditResult r = apparmor::addRuleToProfile(
         file.ToStdString(), g.sample.profile, finalRule);
-    finishEdit(r, file);
+    if (finishEdit(r, file) && decision == apparmor::Decision::Allow)
+        maybeAddPeerRule(g, decision, dir);
+}
+
+void AppArmorEventsPanel::maybeAddPeerRule(const apparmor::DenialGroup& g,
+                                           apparmor::Decision decision,
+                                           const wxString& dir) {
+    // Only ptrace/signal are mediated on both ends; buildPeerRule returns the
+    // complementary rule (inverse mode, peer = our own profile) or nullopt.
+    auto peerRule = apparmor::buildPeerRule(g.sample, decision);
+    if (!peerRule)
+        return;
+
+    const wxString op = wxString::FromUTF8(g.sample.operation);
+    const wxString peerName = wxString::FromUTF8(g.sample.target);
+    const apparmor::Profile* pp =
+        apparmor::findProfileByName(m_profiles().profiles, g.sample.target);
+    if (!pp) {
+        wxMessageBox(
+            op + " access is mediated on BOTH ends, so the peer profile also "
+                 "needs the matching rule for this to work:\n\n    " +
+                wxString::FromUTF8(*peerRule) +
+                "\n\nThe peer profile\n    " + peerName +
+                "\nis not among the loaded profiles, so add that rule to it "
+                "yourself.",
+            "AppArmor - peer profile also needs a rule", wxOK | wxICON_INFORMATION,
+            this);
+        return;
+    }
+
+    const wxString peerFile = dir + "/" + wxString::FromUTF8(pp->sourceFile);
+    wxString prompt =
+        op + " access is mediated on BOTH ends. You allowed it in this "
+             "profile; the peer profile needs the matching rule too, or the "
+             "access is still denied. Add it (edit if you like):\n\n";
+    prompt += "Peer profile: " + peerName + "\n";
+    prompt += "File:         " + peerFile;
+
+    RuleEditDialog dlg(this, prompt, wxString::FromUTF8(*peerRule),
+                       apparmor::ruleSupportsOwner(*peerRule), false);
+    if (dlg.ShowModal() != wxID_OK)
+        return;
+
+    const std::string finalRule = normalizeRule(dlg.rule().ToStdString());
+    if (finalRule.empty())
+        return;
+
+    apparmor::EditResult r = apparmor::addRuleToProfile(
+        peerFile.ToStdString(), g.sample.target, finalRule);
+    finishEdit(r, peerFile);
 }
 
 wxString AppArmorEventsPanel::OnGetItemText(long item, long column) const {
@@ -537,6 +586,13 @@ wxString AppArmorEventsPanel::detailFor(const apparmor::DenialGroup& g) const {
         line("");
         line("To permit it, add an allow rule to the profile; to silence it "
              "without allowing, add a `deny` rule.");
+        if (d.klass == "ptrace" || d.klass == "signal") {
+            line("");
+            line("Note: " + wxString::FromUTF8(d.klass) +
+                 " is mediated on BOTH ends - the peer profile (" +
+                 wxString::FromUTF8(d.target) +
+                 ") needs the matching rule too. Allow offers to add it there.");
+        }
         break;
     case apparmor::Correlation::AllowedByRule:
         if (!g.matchedRule.empty()) {
