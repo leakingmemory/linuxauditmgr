@@ -150,6 +150,33 @@ TEST_CASE("quoted paths with spaces are preserved verbatim, not corrupted") {
     CHECK(profs[0].rules.size() == 2);
 }
 
+TEST_CASE("an unquoted path with a '#' in it is not treated as a comment") {
+    // '#' embedded in a path (e.g. KDE/Qt temp files) is part of the path; only
+    // a '#' at line start or after whitespace is a comment.
+    const std::string input =
+        "profile p {\n"
+        "  owner /home/*/.config/#308732 rw,  # a real trailing comment\n"
+        "  owner /home/*/.config/#308735 rw,\n"
+        "  /etc/a r,\n"
+        "}\n";
+
+    auto profs = parseText(input);
+    REQUIRE(profs.size() == 1);
+    REQUIRE(profs[0].rules.size() == 3); // not merged/blanked into bogus rules
+
+    bool found = false;
+    for (const auto& r : profs[0].rules)
+        if (r.target == "/home/*/.config/#308732" && r.perms == "rw" && r.owner)
+            found = true;
+    CHECK(found);
+
+    // The trailing comment is still stripped; the rule survives normalization.
+    auto res = normalizeProfileText(input);
+    CHECK(res.normalized.find("owner /home/*/.config/#308732 rw,") !=
+          std::string::npos);
+    CHECK(res.normalized.find("a real trailing comment") == std::string::npos);
+}
+
 TEST_CASE("a quoted path containing a comma/# is one rule, not split") {
     // The comma and '#' are inside the quotes; they must not terminate the rule
     // or start a comment.

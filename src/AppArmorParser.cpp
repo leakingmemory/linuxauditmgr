@@ -88,7 +88,15 @@ std::string stripComments(const std::string& text) {
             continue;
         }
         if (c == '#') {
-            // "#include" is a directive, not a comment.
+            // A '#' is a comment only at the start of a line or after
+            // whitespace; one embedded in a token (e.g. a path like
+            // /home/*/.config/#308732) is part of that path, like apparmor_parser
+            // treats it.
+            const bool atTokenStart =
+                i == 0 || std::isspace(static_cast<unsigned char>(out[i - 1]));
+            if (!atTokenStart)
+                continue;
+            // "#include" at a token start is a directive, not a comment.
             if (out.compare(i, 8, "#include") == 0) {
                 i += 7;
                 continue;
