@@ -254,6 +254,10 @@ void correlate(std::vector<DenialGroup>& groups,
             if (r.decision != Decision::Deny || r.kind != wantKind)
                 continue;
             if (wantKind == RuleKind::File) {
+                // An owner-conditional rule only matches an owner-conditional
+                // access; a plain rule matches both.
+                if (r.owner && !g.sample.owner)
+                    continue;
                 if (!globMatch(r.target, g.sample.target))
                     continue;
                 // A perm-less deny (deny <path>,) covers everything; otherwise
@@ -295,6 +299,10 @@ void correlateAllows(std::vector<DenialGroup>& groups,
             if (r.decision != Decision::Allow || r.kind != wantKind)
                 continue;
             if (wantKind == RuleKind::File) {
+                // An owner-conditional rule only matches an owner-conditional
+                // access; a plain rule matches both.
+                if (r.owner && !g.sample.owner)
+                    continue;
                 if (!globMatch(r.target, g.sample.target))
                     continue;
                 if (!r.perms.empty() &&

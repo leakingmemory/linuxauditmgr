@@ -217,3 +217,66 @@ profile app /usr/bin/app {
     CHECK(groups[1].correlation == Correlation::Implicit);
     CHECK(groups[2].correlation == Correlation::Unknown);
 }
+
+TEST_CASE("correlation is owner-aware: owner rules don't cover non-owner access") {
+    auto profiles = parseText(R"(
+profile app /usr/bin/app {
+  owner /data/** rw,
+  deny owner /secret/** rw,
+}
+)",
+                              "app");
+
+    auto mkGroup = [](const char* target, const char* mask, bool owner) {
+        DenialGroup g;
+        g.sample.profile = "/usr/bin/app";
+        g.sample.operation = "open";
+        g.sample.klass = "file";
+        g.sample.target = target;
+        g.sample.requestedMask = mask;
+        g.sample.deniedMask = mask;
+        g.sample.owner = owner;
+        g.count = 1;
+        return g;
+    };
+
+    SECTION("owner allow rule covers an owner access but not a non-owner one") {
+        std::vector<DenialGroup> groups = {
+            mkGroup("/data/x", "r", /*owner=*/true),   // owner -> covered
+            mkGroup("/data/x", "r", /*owner=*/false),  // non-owner -> not covered
+        };
+        correlateAllows(groups, profiles);
+        CHECK(groups[0].correlation == Correlation::AllowedByRule);
+        // A non-owner access an owner rule cannot satisfy falls through to the
+        // enforcing "must be via an abstraction" branch, never the owner rule.
+        CHECK(groups[0].matchedRule == "owner /data/** rw");
+        CHECK(groups[1].matchedRule.empty());
+    }
+
+    SECTION("owner deny rule only fires for an owner access") {
+        std::vector<DenialGroup> groups = {
+            mkGroup("/secret/k", "r", /*owner=*/true),   // owner -> explicit deny
+            mkGroup("/secret/k", "r", /*owner=*/false),  // non-owner -> implicit
+        };
+        correlate(groups, profiles);
+        CHECK(groups[0].correlation == Correlation::ExplicitDeny);
+        CHECK(groups[0].matchedRule == "deny owner /secret/** rw");
+        CHECK(groups[1].correlation == Correlation::Implicit);
+    }
+
+    SECTION("a plain rule covers both owner and non-owner access") {
+        auto plain = parseText(R"(
+profile app /usr/bin/app {
+  /data/** rw,
+}
+)",
+                               "app");
+        std::vector<DenialGroup> groups = {
+            mkGroup("/data/x", "r", /*owner=*/true),
+            mkGroup("/data/x", "r", /*owner=*/false),
+        };
+        correlateAllows(groups, plain);
+        CHECK(groups[0].matchedRule == "/data/** rw");
+        CHECK(groups[1].matchedRule == "/data/** rw");
+    }
+}
