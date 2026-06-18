@@ -114,6 +114,31 @@ it lists the files that fail, with the parser's error message; select one for
 the full output. Validation spawns one parser per file, so it runs on a
 background thread with a live progress count and never freezes the UI.
 
+For the files that *pass*, it also flags any whose rules are not in canonical
+form (status **needs normalization**). Normalizing a profile:
+
+- sorts rules the way the apparmor utils' `get_clean()` does — by kind, then
+  deny rules before allow rules, then by the rendered rule text, which keeps
+  all `owner` rules grouped together (after the non-owner ones), with blank
+  lines between groups;
+- merges plain file rules for the same path (combining their permissions) —
+  exec-transition rules and quoted paths are kept verbatim rather than rebuilt,
+  so a path is never re-quoted or re-escaped; and
+- removes exact-duplicate rules.
+
+The normalized output is re-checked with `apparmor_parser` before it replaces
+the file. It aims to match the apparmor utils' formatting but is best-effort,
+which is why the diff is always shown first.
+
+Select a normalizable profile to see the exact **diff** in the detail pane, then
+**Normalize selected...** writes it (crash-safely). The file preamble, each
+profile's header, its `include` statements (with `local/` overrides kept last)
+and any nested child profiles are preserved verbatim; only the rule lines are
+rewritten, so **comments inside a profile body are dropped** — which is why the
+diff is shown first. The normalized text is re-checked with `apparmor_parser`
+before it replaces the file, and normalization never changes the effective
+policy.
+
 > As a normal user the root-only (`0600`) profiles under `/etc/apparmor.d`
 > cannot be read, so they show up as read errors; run as root (or validate a
 > readable copy) to check the whole set.
@@ -166,6 +191,7 @@ On launch the tool defaults to `/var/log/audit/audit.log` if readable
 | `src/AppArmorDenials.*` | Denial/allow extraction, aggregation, glob match + rule correlation |
 | `src/AppArmorEditor.*` | Rule generation + crash-safe insertion into profile files |
 | `src/AppArmorValidator.*` | Validate profile files via `apparmor_parser -Q --skip-cache` |
+| `src/AppArmorNormalizer.*` | Canonicalize a profile (sort/merge/dedupe rules) + line diff |
 | `src/MainFrame.*`    | wxWidgets UI: notebook hosting the audit + AppArmor tabs |
 | `src/AppArmorTab.*`  | AppArmor tab: inner notebook with the four sub-tabs |
 | `src/AppArmorPanel.*` | wxWidgets UI for the AppArmor profile (gives/takes) sub-tab |

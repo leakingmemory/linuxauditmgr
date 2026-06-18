@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -22,12 +23,37 @@ bool startsWith(const std::string& s, const std::string& prefix) {
            std::equal(prefix.begin(), prefix.end(), s.begin());
 }
 
+// Split on whitespace, but keep a double-quoted run (e.g. a path that contains
+// spaces, "/home/*/a b c") as a single token, honouring backslash escapes.
 std::vector<std::string> splitWhitespace(const std::string& s) {
     std::vector<std::string> out;
-    std::istringstream iss(s);
-    std::string tok;
-    while (iss >> tok)
-        out.push_back(tok);
+    std::string cur;
+    bool inQuote = false;
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+        if (inQuote) {
+            if (c == '\\' && i + 1 < s.size()) {
+                cur.push_back(c);
+                cur.push_back(s[++i]); // keep the escaped char verbatim
+                continue;
+            }
+            cur.push_back(c);
+            if (c == '"')
+                inQuote = false;
+        } else if (c == '"') {
+            inQuote = true;
+            cur.push_back(c);
+        } else if (std::isspace(static_cast<unsigned char>(c))) {
+            if (!cur.empty()) {
+                out.push_back(cur);
+                cur.clear();
+            }
+        } else {
+            cur.push_back(c);
+        }
+    }
+    if (!cur.empty())
+        out.push_back(cur);
     return out;
 }
 
@@ -60,8 +86,9 @@ std::string stripComments(const std::string& text) {
     return out;
 }
 
-// Pull the <...> payload out of an include directive.
+// Pull the <...> payload out of an include directive, and keep the raw line.
 void addInclude(Profile& p, const std::string& stmt) {
+    p.includeLines.push_back(stmt);
     const auto lt = stmt.find('<');
     const auto gt = stmt.find('>', lt == std::string::npos ? 0 : lt);
     if (lt != std::string::npos && gt != std::string::npos && gt > lt)
@@ -366,6 +393,8 @@ std::vector<Profile> parseText(const std::string& text,
             } else {
                 stack.push_back(
                     parseHeader(trim(buf), sourceFile, bufStartLine));
+                stack.back().headerStartOffset = bufStartOffset;
+                stack.back().openBraceOffset = i;
                 buf.clear();
             }
             continue;

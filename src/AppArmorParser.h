@@ -63,13 +63,17 @@ struct Profile {
     std::string attachment;              // attachment path, if any
     std::vector<std::string> flags;      // e.g. "complain", "attach_disconnected"
     std::vector<std::string> includes;   // abstraction/local includes
+    std::vector<std::string> includeLines; // raw `include ...` statements, in order
     std::vector<Rule>        rules;
     std::vector<Profile>     children;   // nested child profiles / hats
     std::string sourceFile;              // file the profile was read from
     int         startLine = 0;
-    // Byte offset of this profile body's closing '}' in the source text. Used
-    // to insert new rules just before it. Length-preserving comment stripping
-    // keeps this valid against the original file.
+    // Byte offsets in the source text (valid against the original file thanks to
+    // length-preserving comment stripping): where the header token begins, the
+    // body's opening '{', and the body's closing '}'. Used to regenerate the
+    // body while keeping the header verbatim, and to insert rules.
+    std::size_t headerStartOffset = 0;
+    std::size_t openBraceOffset = 0;
     std::size_t bodyEndOffset = 0;
 
     bool complain() const;               // runs in complain (log-only) mode

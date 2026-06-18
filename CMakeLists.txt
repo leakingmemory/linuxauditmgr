@@ -29,6 +29,7 @@ add_library(auditcore STATIC
     src/AppArmorDenials.cpp
     src/AppArmorEditor.cpp
     src/AppArmorValidator.cpp
+    src/AppArmorNormalizer.cpp
 )
 target_include_directories(auditcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(auditcore PRIVATE ${warning_flags})
@@ -57,6 +58,7 @@ if(BUILD_TESTING)
         tests/test_apparmor_denials.cpp
         tests/test_apparmor_editor.cpp
         tests/test_apparmor_validator.cpp
+        tests/test_apparmor_normalizer.cpp
     )
     target_link_libraries(auditmgr_tests PRIVATE auditcore Catch2::Catch2WithMain)
     target_compile_options(auditmgr_tests PRIVATE ${warning_flags})

@@ -31,7 +31,7 @@ AppArmorTab::AppArmorTab(wxWindow* parent, const wxString& initialDir,
     m_allows = new AppArmorEventsPanel(m_notebook,
                                        AppArmorEventsPanel::Mode::Allows,
                                        std::move(events), profiles, reload);
-    m_validation = new AppArmorValidationPanel(m_notebook, profiles);
+    m_validation = new AppArmorValidationPanel(m_notebook, profiles, reload);
 
     m_notebook->AddPage(m_profiles, "Profiles");
     m_notebook->AddPage(m_denials, "Denials");

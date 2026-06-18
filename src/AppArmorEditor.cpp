@@ -471,6 +471,11 @@ EditResult reverseDenyRule(const std::string& file,
     return res;
 }
 
+bool writeFileAtomically(const std::string& file, const std::string& content,
+                         std::string& error) {
+    return atomicReplace(file, content, error);
+}
+
 bool canReloadProfiles() {
     return ::geteuid() == 0;
 }

@@ -39,6 +39,13 @@ EditResult reverseDenyRule(const std::string& file,
                            const std::string& profileName,
                            const std::string& denyRuleRaw);
 
+// Crash-safely replace a file's contents: write to a temp file in the same
+// directory, fsync, verify the bytes, preserve permissions, then atomically
+// rename over the original. Returns false (with `error` set) on failure,
+// leaving the original untouched.
+bool writeFileAtomically(const std::string& file, const std::string& content,
+                         std::string& error);
+
 // True if the process can load profiles into the kernel (i.e. runs as root).
 bool canReloadProfiles();
 
