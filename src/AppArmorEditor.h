@@ -67,6 +67,13 @@ bool writeFileAtomically(const std::string& file, const std::string& content,
 // True if the process can load profiles into the kernel (i.e. runs as root).
 bool canReloadProfiles();
 
+// True if `dir` is the live kernel policy directory (/etc/apparmor.d), the one
+// the kernel actually loads profiles from. Edits to any other directory (e.g. a
+// readable copy) do not affect the running kernel until copied there and
+// reloaded - the UI warns when writing outside it. Comparison is by canonical
+// path, so symlinks and trailing slashes do not matter.
+bool isLivePolicyDir(const std::string& dir);
+
 struct ReloadResult {
     bool        ok = false;
     std::string message;

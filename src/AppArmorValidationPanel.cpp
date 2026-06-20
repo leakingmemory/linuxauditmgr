@@ -289,12 +289,18 @@ void AppArmorValidationPanel::onNormalize(wxCommandEvent&) {
     if (row.kind != Row::Kind::NeedsNorm)
         return;
 
-    wxString msg = "Apply normalization to:\n    " +
-                   wxString::FromUTF8(row.file) +
-                   "\n\nThe diff shown in the detail pane will be written "
-                   "(crash-safely). Comments inside the profile body are "
-                   "removed. The result is re-checked with apparmor_parser "
-                   "before replacing the file.";
+    wxString msg;
+    if (m_profiles && !apparmor::isLivePolicyDir(m_profiles().directory))
+        msg += "NOTE: " + wxString::FromUTF8(m_profiles().directory) +
+               " is not the live policy directory (/etc/apparmor.d). This edit "
+               "will NOT affect the running kernel until the file is copied "
+               "there and reloaded.\n\n";
+    msg += "Apply normalization to:\n    " +
+           wxString::FromUTF8(row.file) +
+           "\n\nThe diff shown in the detail pane will be written "
+           "(crash-safely). Comments inside the profile body are "
+           "removed. The result is re-checked with apparmor_parser "
+           "before replacing the file.";
     wxMessageDialog confirm(this, msg, "Confirm normalization",
                             wxYES_NO | wxICON_QUESTION);
     confirm.SetYesNoLabels("&Write normalized", "&Cancel");

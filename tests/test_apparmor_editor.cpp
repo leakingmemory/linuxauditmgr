@@ -79,6 +79,15 @@ TEST_CASE("buildRule emits an owner rule when the access is owner-conditional") 
     CHECK(*buildRule(d, Decision::Allow) == "/home/sigsegv/.config/x rw,");
 }
 
+TEST_CASE("isLivePolicyDir recognises the live kernel policy directory") {
+    CHECK(isLivePolicyDir("/etc/apparmor.d"));
+    CHECK(isLivePolicyDir("/etc/apparmor.d/"));      // trailing slash
+    CHECK(isLivePolicyDir("/etc/apparmor.d/../apparmor.d")); // normalised
+    CHECK_FALSE(isLivePolicyDir("/home/user/apparmor.d"));
+    CHECK_FALSE(isLivePolicyDir("/etc/apparmor.d/abstractions"));
+    CHECK_FALSE(isLivePolicyDir(""));
+}
+
 TEST_CASE("ptrace peer with a glob profile name is escaped, not wildcarded") {
     // The peer is a profile NAME containing a literal '*' (from its attachment
     // glob). It must be escaped (\*) so the kernel matches that literal '*';

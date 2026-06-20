@@ -54,7 +54,11 @@ private:
     // rule the peer profile needs (AppArmor mediates these on both ends).
     void maybeAddPeerRule(const apparmor::DenialGroup& g,
                           apparmor::Decision decision, const wxString& dir);
-    bool finishEdit(const apparmor::EditResult& r, const wxString& file);
+    // morePermissive: the write grants access (allow / deny-reversal). Such a
+    // change is not picked up by an already-running process that has
+    // no_new_privs set, so the success message then suggests restarting it.
+    bool finishEdit(const apparmor::EditResult& r, const wxString& file,
+                    bool morePermissive);
 
     class DenialList;
     wxString OnGetItemText(long item, long column) const;

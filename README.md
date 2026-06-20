@@ -118,6 +118,21 @@ only for uid 0) makes it reload the edited profile into the kernel immediately
 after writing, reporting the parser's output if it fails. Run as a normal user
 the toggle is disabled and labelled *(needs root)*.
 
+Two things the confirmation/result dialogs warn about, because both produce the
+confusing "I allowed it but it's still denied" symptom:
+
+- **Editing a non-live directory.** If the loaded profiles directory is not the
+  live policy (`/etc/apparmor.d`) — e.g. a readable copy, or one set via
+  `LINUXAUDITMGR_APPARMOR_DIR` — the confirmation prompt says so up front: the
+  edit will not affect the running kernel until the file is copied into
+  `/etc/apparmor.d` and reloaded.
+- **Restarting the confined program.** After a more-permissive change (an allow,
+  or reversing a deny), the result dialog notes that an **already-running**
+  process which has `no_new_privs` set (most JVM / sandboxed apps — IDEs,
+  browsers, …) will **not** pick up the change while running: AppArmor refuses to
+  apply a more-permissive profile replacement to such a task, so even a correct,
+  loaded rule keeps being denied until the program is **restarted**.
+
 The **Allows** sub-tab is the mirror image of Denials: it shows the AppArmor
 `ALLOWED` events from the loaded log (logged in complain mode, or by an `audit`
 allow rule), aggregated and correlated with the profiles' allow rules:

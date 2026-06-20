@@ -59,6 +59,17 @@ wxString formatTime(double epoch) {
     return wxString::FromUTF8(buf);
 }
 
+// A heads-up shown in confirmation prompts when the loaded profiles directory
+// is not the live kernel policy (/etc/apparmor.d). Empty when it is live.
+wxString nonLiveDirWarning(const std::string& dir) {
+    if (apparmor::isLivePolicyDir(dir))
+        return {};
+    return "NOTE: " + wxString::FromUTF8(dir) +
+           " is not the live policy directory (/etc/apparmor.d). This edit will "
+           "NOT affect the running kernel until the file is copied there and "
+           "reloaded.\n\n";
+}
+
 // Confirmation dialog for adding a rule: an editable rule field plus, for file
 // rules, an "Owner only" checkbox that flips the `owner` qualifier in place so
 // the user can choose between matching only their own files and any user's.
@@ -383,7 +394,8 @@ void AppArmorEventsPanel::onReverse(wxCommandEvent&) {
 
 // Shared tail for both edit operations: optionally reapply, report, reload.
 bool AppArmorEventsPanel::finishEdit(const apparmor::EditResult& r,
-                                      const wxString& file) {
+                                      const wxString& file,
+                                      bool morePermissive) {
     if (!r.ok) {
         wxMessageBox(wxString::FromUTF8(r.message), "AppArmor edit failed",
                      wxOK | wxICON_ERROR, this);
@@ -400,6 +412,12 @@ bool AppArmorEventsPanel::finishEdit(const apparmor::EditResult& r,
             icon = wxICON_WARNING; // change was written, but reload failed
     } else {
         outcome += "\n\nReload AppArmor (apparmor_parser -r) to apply it.";
+    }
+    if (morePermissive) {
+        outcome += "\n\nIf the access is still denied after reloading, the "
+                   "affected program may need restarting: a process that has "
+                   "no_new_privs set (most JVM / sandboxed apps) does not pick "
+                   "up a more-permissive profile change while running.";
     }
     wxMessageBox(outcome, "AppArmor edit", wxOK | icon, this);
 
@@ -420,7 +438,8 @@ void AppArmorEventsPanel::applyReverse() {
     const wxString dir = wxString::FromUTF8(m_profiles().directory);
     const wxString file = dir + "/" + wxString::FromUTF8(g.profileFile);
 
-    wxString msg = "Reverse this deny rule into an allow rule?\n\n";
+    wxString msg = nonLiveDirWarning(m_profiles().directory);
+    msg += "Reverse this deny rule into an allow rule?\n\n";
     msg += "    " + wxString::FromUTF8(g.matchedRule) + "\n\n";
     msg += "Profile: " + wxString::FromUTF8(g.sample.profile) + "\n";
     msg += "File:    " + file + "\n\n";
@@ -435,7 +454,7 @@ void AppArmorEventsPanel::applyReverse() {
 
     apparmor::EditResult r = apparmor::reverseDenyRule(
         file.ToStdString(), g.sample.profile, g.matchedRule);
-    finishEdit(r, file);
+    finishEdit(r, file, /*morePermissive=*/true);
 }
 
 void AppArmorEventsPanel::applyDecision(apparmor::Decision decision) {
@@ -461,9 +480,10 @@ void AppArmorEventsPanel::applyDecision(apparmor::Decision decision) {
     // path rules, where you usually want to widen the exact denied path into a
     // glob (e.g. /home/*/.cache/** rather than one specific file), and to pick
     // owner-only versus any-user via the checkbox.
-    wxString prompt = verb + " this access by adding a rule to the profile.\n"
-                             "Edit it if you want (e.g. widen a path with "
-                             "* or ** globs):\n\n";
+    wxString prompt = nonLiveDirWarning(m_profiles().directory);
+    prompt += verb + " this access by adding a rule to the profile.\n"
+                     "Edit it if you want (e.g. widen a path with "
+                     "* or ** globs):\n\n";
     prompt += "Profile: " + wxString::FromUTF8(g.sample.profile) + "\n";
     prompt += "File:    " + file;
 
@@ -481,7 +501,8 @@ void AppArmorEventsPanel::applyDecision(apparmor::Decision decision) {
 
     apparmor::EditResult r = apparmor::addRuleToProfile(
         file.ToStdString(), g.sample.profile, finalRule);
-    if (finishEdit(r, file) && decision == apparmor::Decision::Allow)
+    const bool allow = decision == apparmor::Decision::Allow;
+    if (finishEdit(r, file, /*morePermissive=*/allow) && allow)
         maybeAddPeerRule(g, decision, dir);
 }
 
@@ -512,7 +533,8 @@ void AppArmorEventsPanel::maybeAddPeerRule(const apparmor::DenialGroup& g,
     }
 
     const wxString peerFile = dir + "/" + wxString::FromUTF8(pp->sourceFile);
-    wxString prompt =
+    wxString prompt = nonLiveDirWarning(m_profiles().directory);
+    prompt +=
         op + " access is mediated on BOTH ends. You allowed it in this "
              "profile; the peer profile needs the matching rule too, or the "
              "access is still denied. Add it (edit if you like):\n\n";
@@ -530,7 +552,7 @@ void AppArmorEventsPanel::maybeAddPeerRule(const apparmor::DenialGroup& g,
 
     apparmor::EditResult r = apparmor::addRuleToProfile(
         peerFile.ToStdString(), g.sample.target, finalRule);
-    finishEdit(r, peerFile);
+    finishEdit(r, peerFile, /*morePermissive=*/true);
 }
 
 wxString AppArmorEventsPanel::OnGetItemText(long item, long column) const {

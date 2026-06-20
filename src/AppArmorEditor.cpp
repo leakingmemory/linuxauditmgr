@@ -562,6 +562,17 @@ bool canReloadProfiles() {
     return ::geteuid() == 0;
 }
 
+bool isLivePolicyDir(const std::string& dir) {
+    namespace fs = std::filesystem;
+    if (dir.empty())
+        return false;
+    std::error_code ec;
+    fs::path p = fs::weakly_canonical(dir, ec);
+    if (ec)
+        p = fs::path(dir).lexically_normal();
+    return p == fs::path("/etc/apparmor.d");
+}
+
 ReloadResult reloadProfile(const std::string& file) {
     ReloadResult r;
     if (!canReloadProfiles()) {
