@@ -765,6 +765,21 @@ ReloadResult enableProfileFile(const std::string& policyDir,
     return r;
 }
 
+bool removeDisableLink(const std::string& policyDir, const std::string& file,
+                       std::string& err) {
+    namespace fs = std::filesystem;
+    const std::string link = disableLinkPath(policyDir, file);
+    std::error_code ec;
+    if (fs::is_symlink(fs::symlink_status(link, ec))) {
+        fs::remove(link, ec);
+        if (ec) {
+            err = "Cannot remove disable symlink " + link + ": " + ec.message();
+            return false;
+        }
+    }
+    return true;
+}
+
 bool writeFileAtomically(const std::string& file, const std::string& content,
                          std::string& error) {
     return atomicReplace(file, content, error);

@@ -427,3 +427,24 @@ TEST_CASE("disableLinkPath places the symlink under <dir>/disable") {
                           "/etc/apparmor.d/usr.bin.foo") ==
           "/etc/apparmor.d/disable/usr.bin.foo");
 }
+
+TEST_CASE("removeDisableLink clears the disable symlink and is a no-op otherwise") {
+    namespace fs = std::filesystem;
+    auto path = writeTemp("re_enable", "profile p {\n}\n");
+    const std::string dir = path.parent_path().string();
+    const std::string link = disableLinkPath(dir, path.string());
+
+    // No link yet: succeeds and reports the file as enabled.
+    std::string err;
+    CHECK(removeDisableLink(dir, path.string(), err));
+    CHECK_FALSE(isProfileFileDisabled(dir, path.string()));
+
+    // Create a disable symlink by hand, then remove it via the helper.
+    fs::create_directories(fs::path(link).parent_path());
+    fs::create_symlink(path, link);
+    CHECK(isProfileFileDisabled(dir, path.string()));
+    CHECK(removeDisableLink(dir, path.string(), err));
+    CHECK_FALSE(isProfileFileDisabled(dir, path.string()));
+
+    fs::remove_all(path.parent_path());
+}

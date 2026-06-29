@@ -363,11 +363,15 @@ void AppArmorPanel::updateModeButtons() {
 void AppArmorPanel::applyComplainMode(bool complain) {
     if (m_selName.empty() || m_selFile.empty())
         return;
+    const bool wasDisabled = selectionDisabled();
     const char* word = complain ? "complain" : "enforce";
 
     wxString msg = wxString::Format("Set profile '%s' to %s mode?\n\nFile: %s",
                                     wxString::FromUTF8(m_selName), word,
                                     wxString::FromUTF8(m_selFile));
+    if (wasDisabled)
+        msg += "\n\nThis profile is currently disabled; setting an active mode "
+               "also re-enables it (removes the disable symlink).";
     if (!apparmor::isLivePolicyDir(m_loadedDir))
         msg += "\n\nNOTE: " + wxString::FromUTF8(m_loadedDir) +
                " is not the live policy directory (/etc/apparmor.d); this edits "
@@ -392,6 +396,19 @@ void AppArmorPanel::applyComplainMode(bool complain) {
 
     wxString outcome = wxString::FromUTF8(r.message);
     long icon = wxICON_INFORMATION;
+
+    // An active mode and a boot-time disable are contradictory, so clear the
+    // disable symlink when switching a disabled profile to enforce/complain.
+    if (wasDisabled) {
+        std::string err;
+        if (apparmor::removeDisableLink(m_loadedDir, m_selFile, err)) {
+            outcome += "\n\nRe-enabled (removed the disable symlink).";
+        } else {
+            outcome += "\n\n" + wxString::FromUTF8(err);
+            icon = wxICON_WARNING;
+        }
+    }
+
     if (apparmor::isLivePolicyDir(m_loadedDir) &&
         apparmor::canReloadProfiles()) {
         apparmor::ReloadResult rr = apparmor::reloadProfile(m_selFile);

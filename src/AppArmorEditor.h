@@ -127,4 +127,11 @@ ReloadResult disableProfileFile(const std::string& policyDir,
 ReloadResult enableProfileFile(const std::string& policyDir,
                                const std::string& file);
 
+// Remove just the boot-time disable symlink for `file` under `policyDir`,
+// without touching the kernel. Returns true on success, including when no link
+// existed; sets `err` on failure. Used to re-enable a profile as a side effect
+// of switching it to an active (enforce/complain) mode.
+bool removeDisableLink(const std::string& policyDir, const std::string& file,
+                       std::string& err);
+
 } // namespace apparmor
