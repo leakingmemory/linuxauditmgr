@@ -83,4 +83,48 @@ struct ReloadResult {
 // Requires root; captures the parser's output on failure.
 ReloadResult reloadProfile(const std::string& file);
 
+// Unload (remove) every profile in `file` from the kernel with
+// `apparmor_parser -R <file>`. Requires root; captures output on failure.
+ReloadResult unloadProfile(const std::string& file);
+
+// --- Profile mode: enforce / complain / disable ----------------------------
+
+// Pure header transform used by setComplainMode (exposed for testing). Given a
+// profile header - the text from the optional `profile`/`hat` keyword up to but
+// excluding the body '{' - return it with the `complain` flag present
+// (complain=true) or absent (complain=false) in its `flags=(...)` clause. Adds
+// the clause when switching a flagless profile to complain and drops an emptied
+// clause when switching the last flag off; other flags are preserved. Returns
+// the header unchanged when it is already in the requested state.
+std::string setComplainInHeader(const std::string& header, bool complain);
+
+// Switch a profile between enforce and complain mode by editing its flags in
+// `file`, crash-safely (write temp, fsync, re-parse to validate, atomic
+// rename). The file edit alone does not change the running kernel; call
+// reloadProfile() afterwards (requires root) to apply it. Idempotent: returns
+// ok with an explanatory message when already in the requested mode.
+EditResult setComplainMode(const std::string& file,
+                           const std::string& profileName, bool complain);
+
+// Path of the boot-time disable symlink for `file` under `policyDir`
+// (policyDir/disable/<basename>). Pure; touches nothing on disk.
+std::string disableLinkPath(const std::string& policyDir,
+                            const std::string& file);
+
+// True if a disable symlink for `file` exists under `policyDir` (the file is
+// set to stay unloaded across reboots).
+bool isProfileFileDisabled(const std::string& policyDir,
+                           const std::string& file);
+
+// Disable the whole profile file: create the boot-persistent disable symlink in
+// policyDir/disable/ and unload it from the kernel. AppArmor disables by file,
+// so this affects every profile the file defines. Requires root.
+ReloadResult disableProfileFile(const std::string& policyDir,
+                                const std::string& file);
+
+// Re-enable a disabled profile file: remove the disable symlink and reload the
+// file into the kernel (apparmor_parser -r). Requires root.
+ReloadResult enableProfileFile(const std::string& policyDir,
+                               const std::string& file);
+
 } // namespace apparmor

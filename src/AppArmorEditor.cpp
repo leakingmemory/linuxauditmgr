@@ -553,6 +553,218 @@ EditResult reverseDenyRule(const std::string& file,
     return res;
 }
 
+namespace {
+// Split a flags=(...) inner list on commas, trimming whitespace and dropping
+// empty entries: "complain, attach_disconnected" -> {"complain","attach_disconnected"}.
+std::vector<std::string> splitFlagList(const std::string& inner) {
+    std::vector<std::string> out;
+    std::stringstream ss(inner);
+    std::string f;
+    while (std::getline(ss, f, ',')) {
+        const std::size_t a = f.find_first_not_of(" \t");
+        if (a == std::string::npos)
+            continue;
+        const std::size_t b = f.find_last_not_of(" \t");
+        out.push_back(f.substr(a, b - a + 1));
+    }
+    return out;
+}
+} // namespace
+
+std::string setComplainInHeader(const std::string& header, bool complain) {
+    // The parser recognises only the spaceless token form `flags=(a,b)`, so we
+    // locate and emit exactly that.
+    static const std::string kKey = "flags=(";
+    const std::size_t fp = header.find(kKey);
+
+    if (fp != std::string::npos) {
+        const std::size_t innerStart = fp + kKey.size();
+        const std::size_t close = header.find(')', innerStart);
+        if (close == std::string::npos)
+            return header; // malformed clause; leave it untouched
+
+        std::vector<std::string> flags =
+            splitFlagList(header.substr(innerStart, close - innerStart));
+        const bool has =
+            std::find(flags.begin(), flags.end(), "complain") != flags.end();
+        if (complain == has)
+            return header; // already in the requested state
+
+        if (complain)
+            flags.push_back("complain");
+        else
+            flags.erase(std::remove(flags.begin(), flags.end(), "complain"),
+                        flags.end());
+
+        if (flags.empty()) {
+            // Drop the whole clause, absorbing one adjacent space so we do not
+            // leave a double space or a gap before the body brace.
+            std::size_t rmStart = fp;
+            std::size_t rmEnd = close + 1;
+            if (rmEnd < header.size() && header[rmEnd] == ' ')
+                ++rmEnd;
+            else if (rmStart > 0 && header[rmStart - 1] == ' ')
+                --rmStart;
+            return header.substr(0, rmStart) + header.substr(rmEnd);
+        }
+
+        std::string clause = "flags=(";
+        for (std::size_t k = 0; k < flags.size(); ++k) {
+            if (k)
+                clause += ',';
+            clause += flags[k];
+        }
+        clause += ')';
+        return header.substr(0, fp) + clause + header.substr(close + 1);
+    }
+
+    // No flags clause present.
+    if (!complain)
+        return header; // already enforce
+    const std::size_t last = header.find_last_not_of(" \t\r\n");
+    if (last == std::string::npos)
+        return header; // nothing but whitespace; nowhere sensible to insert
+    return header.substr(0, last + 1) + " flags=(complain)" +
+           header.substr(last + 1);
+}
+
+EditResult setComplainMode(const std::string& file,
+                           const std::string& profileName, bool complain) {
+    EditResult res;
+
+    bool ok = false;
+    const std::string original = readFile(file, ok);
+    if (!ok) {
+        res.message = "Cannot read " + file;
+        return res;
+    }
+
+    auto profiles = parseText(original, file);
+    const Profile* prof = findProfile(profiles, profileName);
+    if (!prof) {
+        res.message = "Profile '" + profileName + "' not found in " + file;
+        return res;
+    }
+    if (prof->openBraceOffset == 0 || prof->openBraceOffset > original.size() ||
+        prof->headerStartOffset >= prof->openBraceOffset) {
+        res.message =
+            "Could not locate the header of profile '" + profileName + "'";
+        return res;
+    }
+
+    const std::string header =
+        original.substr(prof->headerStartOffset,
+                        prof->openBraceOffset - prof->headerStartOffset);
+    const std::string newHeader = setComplainInHeader(header, complain);
+
+    const char* word = complain ? "complain" : "enforce";
+    if (newHeader == header) {
+        res.ok = true;
+        res.rule = header;
+        res.message =
+            "Profile '" + profileName + "' is already in " + word + " mode.";
+        return res;
+    }
+
+    const std::string content = original.substr(0, prof->headerStartOffset) +
+                                newHeader +
+                                original.substr(prof->openBraceOffset);
+
+    // Validate: still parses, same number of top-level profiles, the target now
+    // in the requested mode, and its rule set unchanged (we touched only flags).
+    const std::size_t beforeRules = prof->rules.size();
+    auto reparsed = parseText(content, file);
+    const Profile* after = findProfile(reparsed, profileName);
+    if (reparsed.size() != profiles.size() || !after ||
+        after->complain() != complain || after->rules.size() != beforeRules) {
+        res.message = "Internal check failed: edited profile did not parse as "
+                      "expected; file left unchanged";
+        return res;
+    }
+
+    if (!atomicReplace(file, content, res.message))
+        return res;
+
+    res.ok = true;
+    res.rule = newHeader;
+    res.message = "Set profile '" + profileName + "' to " + word + " mode in " +
+                  file + ".";
+    return res;
+}
+
+std::string disableLinkPath(const std::string& policyDir,
+                            const std::string& file) {
+    namespace fs = std::filesystem;
+    return (fs::path(policyDir) / "disable" / fs::path(file).filename())
+        .string();
+}
+
+bool isProfileFileDisabled(const std::string& policyDir,
+                           const std::string& file) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    // A dangling symlink still counts as "disabled"; symlink_status does not
+    // follow the link, so is_symlink is true even if the target is gone.
+    return fs::is_symlink(fs::symlink_status(disableLinkPath(policyDir, file), ec));
+}
+
+ReloadResult disableProfileFile(const std::string& policyDir,
+                                const std::string& file) {
+    namespace fs = std::filesystem;
+    ReloadResult r;
+    const std::string link = disableLinkPath(policyDir, file);
+    const fs::path linkDir = fs::path(link).parent_path();
+    std::error_code ec;
+
+    fs::create_directories(linkDir, ec);
+    if (ec) {
+        r.message = "Cannot create disable directory " + linkDir.string() +
+                    ": " + ec.message();
+        return r;
+    }
+    if (!fs::is_symlink(fs::symlink_status(link, ec))) {
+        fs::create_symlink(fs::absolute(file), link, ec);
+        if (ec) {
+            r.message =
+                "Cannot create disable symlink " + link + ": " + ec.message();
+            return r;
+        }
+    }
+
+    // The persistent disable is now in place; also unload from the running
+    // kernel so the change takes effect immediately (best effort: needs root).
+    const ReloadResult un = unloadProfile(file);
+    r.ok = true;
+    r.message = "Disabled across reboots: created " + link + ".\n" + un.message;
+    if (!un.ok)
+        r.message += "\n(The boot-time disable is in place, but the profile is "
+                     "still loaded in the running kernel; it stays active until "
+                     "the next reboot or a manual unload.)";
+    return r;
+}
+
+ReloadResult enableProfileFile(const std::string& policyDir,
+                               const std::string& file) {
+    namespace fs = std::filesystem;
+    ReloadResult r;
+    const std::string link = disableLinkPath(policyDir, file);
+    std::error_code ec;
+
+    if (fs::is_symlink(fs::symlink_status(link, ec))) {
+        fs::remove(link, ec);
+        if (ec) {
+            r.message =
+                "Cannot remove disable symlink " + link + ": " + ec.message();
+            return r;
+        }
+    }
+
+    const ReloadResult rr = reloadProfile(file);
+    r.ok = rr.ok;
+    r.message = "Re-enabled: removed " + link + ".\n" + rr.message;
+    return r;
+}
+
 bool writeFileAtomically(const std::string& file, const std::string& content,
                          std::string& error) {
     return atomicReplace(file, content, error);
@@ -573,10 +785,14 @@ bool isLivePolicyDir(const std::string& dir) {
     return p == fs::path("/etc/apparmor.d");
 }
 
-ReloadResult reloadProfile(const std::string& file) {
+namespace {
+// Run `apparmor_parser <flag> <file>` with no shell, capturing stdout+stderr.
+// Shared by reloadProfile (-r) and unloadProfile (-R). Requires root.
+ReloadResult runApparmorParser(const char* flag, const std::string& file,
+                               const std::string& successMsg) {
     ReloadResult r;
     if (!canReloadProfiles()) {
-        r.message = "Reapplying a profile requires root (uid 0).";
+        r.message = "This action requires root (uid 0).";
         return r;
     }
 
@@ -600,7 +816,7 @@ ReloadResult reloadProfile(const std::string& file) {
         ::close(pipefd[0]);
         ::close(pipefd[1]);
         // execlp avoids any shell, so the path needs no quoting/escaping.
-        ::execlp("apparmor_parser", "apparmor_parser", "-r", file.c_str(),
+        ::execlp("apparmor_parser", "apparmor_parser", flag, file.c_str(),
                  static_cast<char*>(nullptr));
         ::_exit(127); // exec failed
     }
@@ -623,18 +839,29 @@ ReloadResult reloadProfile(const std::string& file) {
         return r;
     }
     if (code != 0) {
-        r.message = "apparmor_parser -r failed (exit " + std::to_string(code) +
-                    ")";
+        r.message = std::string("apparmor_parser ") + flag + " failed (exit " +
+                    std::to_string(code) + ")";
         if (!out.empty())
             r.message += ":\n" + out;
         return r;
     }
 
     r.ok = true;
-    r.message = "Profile reapplied into the kernel (apparmor_parser -r).";
+    r.message = successMsg;
     if (!out.empty())
         r.message += "\n" + out;
     return r;
+}
+} // namespace
+
+ReloadResult reloadProfile(const std::string& file) {
+    return runApparmorParser(
+        "-r", file, "Profile reapplied into the kernel (apparmor_parser -r).");
+}
+
+ReloadResult unloadProfile(const std::string& file) {
+    return runApparmorParser(
+        "-R", file, "Profile unloaded from the kernel (apparmor_parser -R).");
 }
 
 } // namespace apparmor

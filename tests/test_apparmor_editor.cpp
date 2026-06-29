@@ -350,3 +350,80 @@ TEST_CASE("addRuleToProfile leaves the file untouched on error") {
 
     std::filesystem::remove_all(path.parent_path());
 }
+
+TEST_CASE("setComplainInHeader adds and removes the complain flag") {
+    // Flagless header gains a flags=(complain) clause, trailing space preserved.
+    CHECK(setComplainInHeader("profile foo /usr/bin/foo ", true) ==
+          "profile foo /usr/bin/foo flags=(complain) ");
+
+    // Removing the only flag drops the whole clause (and one adjacent space).
+    CHECK(setComplainInHeader("profile foo flags=(complain) ", false) ==
+          "profile foo ");
+
+    // Other flags are preserved on both add and remove.
+    CHECK(setComplainInHeader("profile foo flags=(attach_disconnected) ", true) ==
+          "profile foo flags=(attach_disconnected,complain) ");
+    CHECK(setComplainInHeader(
+              "profile foo flags=(complain,attach_disconnected) ", false) ==
+          "profile foo flags=(attach_disconnected) ");
+
+    // Idempotent: asking for the state it is already in changes nothing.
+    CHECK(setComplainInHeader("profile foo flags=(complain) ", true) ==
+          "profile foo flags=(complain) ");
+    CHECK(setComplainInHeader("profile foo /usr/bin/foo ", false) ==
+          "profile foo /usr/bin/foo ");
+}
+
+TEST_CASE("setComplainMode flips a profile between enforce and complain") {
+    const std::string before =
+        "profile myapp /usr/bin/myapp {\n  /etc/myapp/** r,\n}\n";
+    auto path = writeTemp("mode_named", before);
+
+    auto toComplain = setComplainMode(path.string(), "myapp", true);
+    REQUIRE(toComplain.ok);
+    {
+        auto profs = parseText(slurp(path), path.string());
+        REQUIRE(profs.size() == 1);
+        CHECK(profs.front().complain());
+        CHECK(profs.front().rules.size() == 1); // rule body untouched
+    }
+
+    auto toEnforce = setComplainMode(path.string(), "myapp", false);
+    REQUIRE(toEnforce.ok);
+    {
+        auto profs = parseText(slurp(path), path.string());
+        REQUIRE(profs.size() == 1);
+        CHECK_FALSE(profs.front().complain());
+    }
+
+    // Idempotent: already enforce -> ok, file unchanged.
+    const std::string now = slurp(path);
+    auto again = setComplainMode(path.string(), "myapp", false);
+    CHECK(again.ok);
+    CHECK(slurp(path) == now);
+
+    std::filesystem::remove_all(path.parent_path());
+}
+
+TEST_CASE("setComplainMode works on a bare-path profile and reports errors") {
+    const std::string before = "/usr/bin/bare {\n  /tmp/** rw,\n}\n";
+    auto path = writeTemp("mode_bare", before);
+
+    auto r = setComplainMode(path.string(), "/usr/bin/bare", true);
+    REQUIRE(r.ok);
+    CHECK(parseText(slurp(path), path.string()).front().complain());
+
+    // Unknown profile name: left untouched, not ok.
+    const std::string after = slurp(path);
+    auto miss = setComplainMode(path.string(), "nope", true);
+    CHECK_FALSE(miss.ok);
+    CHECK(slurp(path) == after);
+
+    std::filesystem::remove_all(path.parent_path());
+}
+
+TEST_CASE("disableLinkPath places the symlink under <dir>/disable") {
+    CHECK(disableLinkPath("/etc/apparmor.d",
+                          "/etc/apparmor.d/usr.bin.foo") ==
+          "/etc/apparmor.d/disable/usr.bin.foo");
+}
