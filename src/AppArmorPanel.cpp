@@ -226,9 +226,12 @@ void AppArmorPanel::onItemSelected(wxListEvent& evt) {
     m_detail->SetValue(detailFor(p));
 
     // Capture the selection as strings (findProfile resolves by name, falling
-    // back to attachment for bare-path profiles).
+    // back to attachment for bare-path profiles). sourceFile is only the file's
+    // basename; the editor/parser need the full path (dir + "/" + name), the
+    // same reconstruction the Denials panel uses.
     m_selName = p.name.empty() ? p.attachment : p.name;
-    m_selFile = p.sourceFile;
+    m_selFile = p.sourceFile.empty() ? std::string()
+                                     : m_loadedDir + "/" + p.sourceFile;
     updateModeButtons();
 }
 
@@ -339,7 +342,10 @@ wxString AppArmorPanel::detailFor(const apparmor::Profile& p) const {
 }
 
 bool AppArmorPanel::selectionDisabled() const {
-    return !m_selFile.empty() && m_disabledFiles.count(m_selFile) > 0;
+    // m_selFile is a full path while m_disabledFiles holds basenames, so check
+    // the live symlink directly (disableLinkPath uses the file's basename).
+    return !m_selFile.empty() &&
+           apparmor::isProfileFileDisabled(m_loadedDir, m_selFile);
 }
 
 void AppArmorPanel::updateModeButtons() {
